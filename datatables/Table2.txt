@@ -1,0 +1,17 @@
+Locutor SituationType Cohort Words Like Speakers Frequency
+Child formal 3-4 297870 0 83 0
+Child formal 5-6 389590 130 69 0.3
+Child formal 7-8 326080 110 64 0.3
+Child formal 9-10 429650 840 51 2
+Child informal 3-4 1209310 320 83 0.3
+Child informal 5-6 761630 380 68 0.5
+Child informal 7-8 278310 480 41 1.7
+Child informal 9-10 214880 700 38 3.3
+PrimaryCaregiver formal 3-4 1788980 30 83 0
+PrimaryCaregiver formal 5-6 1029010 200 69 0.2
+PrimaryCaregiver formal 7-8 362180 300 64 0.8
+PrimaryCaregiver formal 9-10 498610 810 51 1.6
+PrimaryCaregiver informal 3-4 2214780 300 83 0.1
+PrimaryCaregiver informal 5-6 1115650 380 68 0.3
+PrimaryCaregiver informal 7-8 526280 570 41 1.1
+PrimaryCaregiver informal 9-10 313900 280 38 0.9
