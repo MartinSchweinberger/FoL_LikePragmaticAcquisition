@@ -12,4 +12,6 @@ Tables showing summaries of the data or contain socio-demographic information ab
 
 Datasets that represent interim versions of the processed data are available in the "data" folder. 
 
+The figures shown in the paper are included in the "images" folder.
+
 If you have any questions or feedback, please get in touch with Martin Schweinberger, the maintainer of this repository and author of the study, via m.schweinberger@uq.edu.au.
