@@ -1,0 +1,134 @@
+---
+title: "On the L1-acquisition of discourse like - Part 6: Formality"
+author: "Anonymous"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  word_document
+bibliography: bibliography.bib
+link-citations: yes
+---
+
+This document focuses on evaluating the reliability of the manual coding of the functions of dm like.
+
+
+In a first step, we prepare the session by cleaning the workspace, loading packages, setting options, and defining paths.
+
+```{r likeac_6_01}
+# clean workspace
+rm(list=ls(all=T))
+# load packages
+library(tidyverse)
+library(here)
+library(readxl)
+library(flextable)
+library(irr)
+library(quanteda)
+# setting options
+options(stringsAsFactors = F)
+options(scipen = 999)
+options(max.print=1000)
+# specify path to corpus
+corpus <- "D:\\Uni\\Korpora\\Original\\CHILDES\\Eng-NA-MOR\\HSLLD"
+```
+
+# Data processing
+
+```{r likeac_6_02}
+# list corpus files
+cha = list.files(path = corpus, pattern = ".cha$", all.files = T,
+  full.names = T, recursive = T, ignore.case = T, include.dirs = T)
+# create version of corpus fit for concordancing
+corpus <- sapply(cha, function(x) {
+  file <- gsub("D:\\Uni\\Korpora\\Original\\CHILDES\\Eng-NA-MOR\\HSLLD/", "", x, fixed = T)
+  file <- gsub(".cha", "", file, fixed = T)
+  x <- scan(x, what = "char", sep = "\t", quiet = T, quote = "", skipNul = T)
+  x <- gsub("\n", " ", x, fixed = T)
+  x <- gsub("\t", " ", x, fixed = T)
+  x <- str_trim(x, side = "both")
+  x <- gsub(" {2,}", " ", x)
+  orig <- paste(x, collapse = " ", sep = " ")
+  x <- strsplit(gsub("([%|*][a-z|A-Z]{2,4}[0-9]{0,1}:)", "~~~\\1", orig), "~~~")
+  txt <- sapply(x, function(y){
+    y <- str_replace_all(y, "%.*", "")
+  })
+  txt <- txt[2:length(txt)]
+  x <- paste(txt, collapse = " ")
+  x <- paste(file, x, collapse = " ")
+  x <- str_trim(x, side = "both")
+  x <- gsub(" {2,}", " ", x)
+  return(x)
+  })
+# inspect data
+str(corpus)
+```
+
+# Search for contractions/full forms
+
+
+```{r likeac_6_05}
+# define search patterns
+con_s <- c(".*'ll", ".*'d", ".*'ve",  "gonna", "will", "would", "should", "could", "had", phrase("going to"))
+# perform concordancing
+con <- quanteda::kwic(corpus, pattern = con_s, valuetype = "regex", window = 100) %>%
+  as.data.frame() %>%
+  dplyr::mutate(docname = str_remove_all(docname, "/[:alnum:]{5,7}.cha"),
+                docname = str_remove_all(docname, ".*/"),
+                contraction = str_detect(pattern, "\\*"),
+                speaker = str_replace_all(pre, ".*(\\* [A-Z]{2,5}[0-9]{0,2} :)", "\\1"),
+                speaker = str_remove_all(speaker, ":.*"),
+                speaker = str_remove_all(speaker, "\\*"),
+                speaker = str_squish(speaker),
+                speaker = factor(speaker),
+                SpeakerType = dplyr::case_when(speaker == "MOT" ~ "MOT",
+                                               speaker == "FAT" ~ "MOT",
+                                               speaker == "GFA" ~ "MOT",
+                                               speaker == "GMA" ~ "MOT",
+                                               speaker == "UNC" ~ "MOT",
+                                               speaker == "GRM" ~ "MOT",
+                                               speaker == "GPA" ~ "MOT",
+                                               speaker == "AUN" ~ "MOT",
+                                               speaker == "ADU" ~ "MOT")) %>%
+  dplyr::filter(SpeakerType == "MOT")
+# inspect results
+head(con)
+```
+
+```{r likeac_6_07}
+condf <- as.data.frame(table(con$contraction, con$docname)) %>%
+  dplyr::rename(Situation = Var2,
+                Contraction = Var1) %>%
+  tidyr::spread(Contraction, Freq) %>%
+  dplyr::rename(FullForm = `FALSE`,
+                Contraction = `TRUE`) %>%
+  dplyr::mutate(Ratio = FullForm/Contraction)
+# inspect data
+condf
+```
+
+
+```{r likeac_6_09}
+formality <- condf %>%
+  dplyr::mutate(Formality = dplyr::case_when(Ratio < 3 & FullForm + Contraction > 100 ~ "informal", 
+                                             TRUE ~ "formal")) %>%
+  dplyr::select(Situation, Formality)
+# inspect data
+formality
+```
+
+
+```{r likeac_6_11}
+informal <- c("ER", "MT", "TP")
+```
+
+## Extract session information
+
+```{r}
+sessionInfo()
+```
+
+***
+
+The END
+
+***
+

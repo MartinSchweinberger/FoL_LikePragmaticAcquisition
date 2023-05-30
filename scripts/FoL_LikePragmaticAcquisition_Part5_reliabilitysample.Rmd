@@ -1,0 +1,259 @@
+---
+title: "On the L1-acquisition of discourse like - Part 5: Reliability"
+author: "Anonymous"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  word_document
+bibliography: bibliography.bib
+link-citations: yes
+---
+
+This document focuses on evaluating the reliability of the manual coding of the functions of dm like.
+
+
+In a first step, we prepare the session by cleaning the workspace, loading packages, setting options, and defining paths.
+
+```{r likeac_5_01}
+# load packages
+library(tidyverse)
+library(here)
+library(readxl)
+library(flextable)
+library(irr)
+```
+
+# Extarct examples for manual coding
+
+Extract sample and save it to disc
+
+```{r likeac_5_03, eval = F}
+set.seed(20200810)
+dmlike_sample <- base::readRDS(here::here("data", "dmlike_all_coded.rda")) %>%
+  sample_n(200) %>%
+  select(-LexicalIndecision, -Specification, -Modification, -Repair, -File, -Function, -DiscourseLike,
+  -Speaker, -Example_long, -Speaker_long, -CleanedUtterance_long)
+# inspect
+head(dmlike_sample)
+```
+
+Save sample to disc
+
+```{r likeac_5_05, eval = F}
+# save 
+base::saveRDS(dmlike_sample, file = here::here("data", "dmlike_reliability_sample.rda"))
+```
+
+# Evaluation of manual coding
+
+```{r likeac_5_07}
+# load data
+man_01 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_LC.xlsx"), sheet = 1)
+man_02 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_EA.xlsx"), sheet = 1)
+man_03 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_JW.xlsx"), sheet = 1)
+man_04 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_NW.xlsx"), sheet = 1)
+man_05 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_KH.xlsx"), sheet = 1)
+man_06 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_RR.xlsx"), sheet = 1)
+man_07 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_AP.xlsx"), sheet = 1)
+man_08 <- read_excel(here::here("reliability", "dmlike_reliabilitytesting_NM.xlsx"), sheet = 1)
+cntl <- read.table(here::here("datatables", "dmlike_all_coded_orig.txt"), sep = "\t", header=TRUE, quote = "", skipNul = T) 
+# inspect data
+head(man_01)
+```
+
+
+```{r likeac_5_09}
+# process and combine data
+man_01 <- man_01 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Function = tolower(Function),
+         Coder = "A01")
+man_02 <- man_02 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Function = ifelse(Function == "1", "attention", 
+                           ifelse(Function == "2", "cognitive",
+                                  ifelse(Function == "3", "repair",
+                                         ifelse(Function == "4", "specification", Function)))),
+         Function = tolower(Function),
+         Coder = "A02")
+man_03 <- man_03 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Function = tolower(Function),
+         Coder = "A03")
+man_04 <- man_04 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Function = tolower(Function),
+         Coder = "A04")
+man_05 <- man_05 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Function = tolower(Function),
+         Coder = "A05")
+man_06 <- man_06 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Coder = "A06")
+man_07 <- man_07 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Coder = "A07")
+man_08 <- man_08 %>%
+  dplyr::select(Function, ID) %>%
+  mutate(Coder = "A08")
+# extract item identifiers
+idx <- man_01$ID
+# extract control
+cntl <- cntl %>%
+  dplyr::select(ID, Specification, Modification, Repair, LexicalIndecision) %>%
+  filter(ID %in% idx) %>%
+  mutate(Coder = "Aut",
+         Function = ifelse(Specification == 1, "specification",
+                           ifelse(Modification == 1, "attention",
+                                  ifelse(LexicalIndecision == 1, "cognitive",
+                                         ifelse(Repair == 1, "repair", NA))))) %>%
+  dplyr::select(ID, Coder, Function)
+# combine data
+man <- rbind(man_01, man_02, man_03, man_04, man_05, man_06, man_07, man_08, cntl) %>%
+  mutate(Function = factor(Function)) %>%
+  spread(Coder, Function)
+# inspect data
+head(man)
+```
+
+Test
+
+```{r, eval = F}
+test <- apply(man[, 2:ncol(man)],1,function(x) names(which.max(table(x))))
+head(test)
+```
+
+
+# Evaluating reliability
+
+We use Light's kappa [see @light1971measures or @conger1980integration] to evaluate the inter-rater reliability. Light's kappa is based on Cohen's kappa. @cohen1960coefficient suggested the following interpretation for kappa:
+
+```{r, echo = F}
+ValueOfKappa <- c(".0–.20", ".21–.40", ".41–.60", ".61–.80", ".81–1.0")
+LevelOfAgreement <- c("None to slight", "Fair", "Moderate", "Substantial", "Almost Perfect")	
+df <- data.frame(ValueOfKappa, LevelOfAgreement)
+ft <- flextable(df)
+ft
+```
+
+@mchugh2012reliability introduced a more rigorous interpretation that should be applied in medical studies (see below).
+
+```{r, echo = F}
+ValueOfKappa <- c(".0–.20", ".21–.39", ".40–.59", ".60–.79", ".80–.90", "Above.90")
+LevelOfAgreement <- c("None", "Minimal", "Weak", "Moderate", "Strong", "Almost Perfect")	
+PercentOfDataReliable <- c("0–4%", "4–15%", "15–35%", "35–63%", "64–81%", "82–100%")
+df <- data.frame(ValueOfKappa, LevelOfAgreement, PercentOfDataReliable)
+ft <- flextable(df)
+ft
+```
+
+
+
+
+```{r kappa}
+# activate packages
+library(irr)
+# extract reliability measures
+reliability <- kappam.light(man[, 3:10])
+# inspect results
+reliability
+```
+
+
+
+
+```{r alpha}
+# activate packages
+library(ltm)
+# extract reliability measures
+cronalpha <- ltm::cronbach.alpha(as.data.frame(man[, 3:10]))
+# inspect results
+cronalpha
+```
+
+# Check author's against coders calssification
+
+
+```{r overlap}
+coders <- apply(man[, 3:9],1,function(x) names(which.max(table(x))))
+author <- man[,10]
+man$Check <- as.vector(coders == author)
+# inspect data
+head(man)
+```
+
+Check percentage of deviation
+
+```{r overlap}
+table(man$Check)
+# percent deviation
+round(table(man$Check)[1]/sum(table(man$Check))*100, 2)
+
+
+```
+
+Create table to combine with data
+
+```{r extract}
+# extract functions
+Function <- apply(man[, 2:ncol(man)],1,function(x) names(which.max(table(x))))
+NFunction <- str_to_title(Function)
+# extract identifiers
+ID <- man$ID
+# combine fun + id to df
+funtb <- data.frame(ID, NFunction)
+# inspect df
+head(funtb)
+```
+
+Add coders classification to data
+
+
+```{r combine}
+# load data
+dmlike_new <- read.table(here::here("datatables", "dmlike_all_coded.txt"), sep = "\t", header=TRUE, quote = "", skipNul = T) 
+dmlike_new <- left_join(dmlike_new, funtb, by = "ID")
+# inspect data
+head(dmlike_new)
+```
+
+Clean combined data
+
+```{r clean}
+dmlike_new <- dmlike_new %>%
+  dplyr::mutate(Function_Fine = Function,
+                Function = ifelse(is.na(NFunction), Function, NFunction),
+                Function = case_when(Function == "Emphasizing" ~ "Attention",
+                                     Function == "FocusMarker" ~ "Attention",
+                                     Function == "Hedge" ~ "Attention",
+                                     Function == "LexicalIndecision" ~ "Cognitive",
+                                     Function == "Modifier" ~ "Attention",
+                                     Function == "RepairIndicator" ~ "Repair",
+                                     Function == "RestartSignal" ~ "Repair",
+                                     Function == "Specification" ~ "Specification",
+                                     TRUE ~ Function)) %>%
+  dplyr::mutate(Specification = ifelse(Function == "Specification", 1, 0),
+                Attention = ifelse(Function == "Attention", 1, 0),
+                Cognitive = ifelse(Function == "Cognitive", 1, 0),
+                Specification = ifelse(Function == "Specification", 1, 0)) %>%
+  dplyr::mutate(Function = factor(Function),
+                Interlocutor = factor(Interlocutor)) %>%
+  dplyr::select(-NFunction)
+# save data
+write.table(dmlike_new, here::here("datatables", "dmlike_all_coded_new.txt"), sep = "\t", row.names = F, quote = F)
+# inspect data
+head(dmlike_new)
+```
+
+## Extract session information
+
+```{r}
+sessionInfo()
+```
+
+***
+
+The END
+
+***
+

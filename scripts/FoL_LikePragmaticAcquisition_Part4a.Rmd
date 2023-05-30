@@ -1,0 +1,1009 @@
+---
+title: "On the L1-acquisition of discourse like - Part 4a"
+author: "Anonymous"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  bookdown::html_document2: default
+bibliography: bibliography.bib
+link-citations: yes
+---
+
+This document shows an analysis that was performed with the aim of investigating the acquiasition of discourse *like* with modifying function in American English based on data from the *Child Language Data Exchange System* (CHILDES). The following represents part 4a of this analysis.
+
+In a first step, we prepare the session by cleaning the workspace, loading packages, setting options, and defining paths.
+
+```{r likeac_4a_001, echo=T, eval = T, message=FALSE, warning=FALSE}
+# clean workspace
+rm(list=ls(all=T))
+# load packages
+library(dplyr)
+# set options
+options(stringsAsFactors = F)
+# define image directory
+imageDirectory<-"images"
+```
+
+Now, we read in the data.
+
+```{r likeac_4a_002, echo=T, eval = T, message=FALSE, warning=FALSE}
+# read in data
+mod <- read.delim("datatables/mod.txt", sep = "\t", 
+                   header=TRUE, quote = "", skipNul = T)
+# rename variable name
+mod <- mod %>%
+  dplyr::rename(AttentionDirecting = Modification)
+# factorize variables
+fctrs <- c("Child", "Gender", "Participants", "AttentionDirecting", "SituationType")
+mod[fctrs] <- lapply(mod[fctrs], factor)
+# create boruta data set
+borutamod <- mod
+# inspect data
+head(mod)
+```
+
+We can now begin with the statistical analysis of discourse *like* with modifying function. In a first step, we perform a Boruta analysis as a variable selection procedure to check which variables have any type of meaningful relationship with the use of discourse *like* with modifying function.
+
+```{r likeac_4a_003, echo=T, eval = T, message=FALSE, warning=FALSE}
+# load library
+library(Boruta)
+# run 1
+boruta.mod <- Boruta(AttentionDirecting ~.,data=borutamod)
+print(boruta.mod)
+```
+
+We remove variables that are confirmed as being unimportant and rerun the analysis.
+
+```{r likeac_4a_004, echo=T, eval = T, message=FALSE, warning=FALSE}
+borutamod <- borutamod %>%
+  dplyr::select(-Gender, - Like_Freq, -Mod_Freq, -Participants, -SituationType)
+# run 2
+boruta.mod <- Boruta(AttentionDirecting ~.,data=borutamod)
+print(boruta.mod)
+```
+
+We can visualize the results of the Boruta analysis.
+
+```{r likeac_4a_005, echo=T, eval = T, message=FALSE, warning=FALSE}
+plot(boruta.mod)
+```
+
+We can now proceed with the regression analysis.
+
+```{r likeac_4a_006, echo=T, eval = T, message=FALSE, warning=FALSE}
+# load packages
+library(lme4)
+library(car)
+library(rms)
+# set options
+options(contrasts  =c("contr.treatment", "contr.poly"))
+data.dist <- datadist(mod)
+options(datadist = "data.dist")
+# create base glm line model
+m0.glm = glm(AttentionDirecting ~ 1, data = mod, family = binomial)
+# create base glmm line model
+m0.glmer = glmer(AttentionDirecting ~ (1|Child), data = mod, family = binomial, 
+                  control=glmerControl(optimizer="bobyqa"))
+# compare AICs
+aic.glmer<- AIC(logLik(m0.glmer))
+aic.glm <- AIC(logLik(m0.glm))
+aic.glmer; aic.glm
+```
+
+```{r likeac_4a_007, echo=T, eval = T, message=FALSE, warning=FALSE}
+# test random effects
+null.id = -2 * logLik(m0.glm) + 2 * logLik(m0.glmer)
+pchisq(as.numeric(null.id), df=1, lower.tail=F) 
+```
+
+The glmm has a significantly better model fit compared to the glm model. We now check if Age is a significant predictor for attention-directing uses of discourse *like*.
+
+```{r likeac_4a_008, echo=T, eval = T, message=FALSE, warning=FALSE}
+# add Age
+m1.glm <- update(m0.glm, .~.+Age)
+m1.glmer <- update(m0.glmer, .~.+Age)
+anova(m1.glmer, m0.glmer, test = "Chi")     
+Anova(m1.glmer, type = "III", test = "Chi")   
+```
+
+We have arrived at a minimal adequate model and proceed with model diagnostics and create the diagnostic plots.
+
+```{r likeac_4a_009, echo=T, eval = T, message=FALSE, warning=FALSE}
+# start plotting
+plot(m1.glmer, pch = 20, col = "black")         
+```
+
+We now check if the data contains data points that have an unacceptably high impact on the model by plotting the Cook's distance. To plot Cook's Distance, we create a glm object which also contains Turn as a predictor as it is included in the final glmer model in the random effect structure. This way, the predictions of the glm and the glmar model are identical.
+
+```{r likeac_4a_010, echo=T, eval = T, message=FALSE, warning=FALSE}
+m1b.glm <- update(m1.glm, .~.+ Child)
+# determine a cutoff for data points that have D-values higher than 4/(n-k-1) 
+cutoff <- 4/((nrow(mod)-length(m1b.glm$coefficients)-2))
+cutoff
+```
+
+The Cook's distance plot names three data points that may cause issues. Also, if we apply the data driven cutoff for Cook's distance (0.001814882), we would retain only 55 data points which is unacceptable. 
+
+We thus have to adapt the cutoff manually and plot the cook's distance values. 
+
+```{r likeac_4a_011, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot cook*s distance
+plot(m1b.glm, which=4, cook.levels = cutoff) 
+```
+
+There are three 3 data points that are suggested as potential outlierswhich is why we add influence statistics to our data to get some more information about data points that may require removing.
+
+```{r likeac_4a_012, echo=T, eval = T, message=FALSE, warning=FALSE}
+# extract influence statistics
+infl <- influence.measures(m1b.glm)       
+# add infl. statistics to data
+mod <- data.frame(mod, infl[[1]], infl[[2]]) 
+```
+
+We now add an index to the data to better identify problematic data points. Then, we order the data by the Cook's distance values and display the data to inspect the data points with the highest Cook's distance.
+
+```{r likeac_4a_013, echo=T, eval = T, message=FALSE, warning=FALSE}
+# create index for data
+mod$id <- 1:nrow(mod)
+mod <- mod[order(mod$cook.d, decreasing = T),]
+head(mod)
+```
+
+The diagnostics do not indicate that we have to remove data points as, overall, the Cook's distance is distributed  evenly and we proceed by extracting the model statistics, adding them to the data set, and creating additional model diagnostic plots. 
+
+```{r likeac_4a_014, echo=T, eval = T, message=FALSE, warning=FALSE}
+# add diagnostics
+mod$residuals <- resid(m1b.glm)
+mod$standardized.residuals <- rstandard(m1b.glm)
+mod$studentized.residuals <- rstudent(m1b.glm)
+mod$cooks.distance <- cooks.distance(m1b.glm)
+mod$dffit <- dffits(m1b.glm)
+mod$leverage <- hatvalues(m1b.glm)
+mod$covariance.ratios <- covratio(m1b.glm)
+mod$fitted <- m1b.glm$fitted.values
+# plot diagnostics
+p1 <- ggplot(mod, 
+              aes(studentized.residuals)) +
+  theme(legend.position = "none") +
+  theme_set(theme_bw(base_size = 8))+ 
+  geom_histogram(aes(y=..density..),
+                 binwidth = 1,
+                 colour="black",
+                 fill="white") +
+  labs(x = "Studentized Residual", y = "Density") + 
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(mod$studentized.residuals, na.rm = TRUE), 
+                            sd = sd(mod$studentized.residuals, na.rm = TRUE)), 
+                colour = "red", size = 1)
+p1
+```
+
+The diagnostic plots confirms that we will have to remove data points. To identify these points, we plot the fitted values against the studentized residuals.
+
+```{r likeac_4a_015, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot diagnostics
+p2 <- ggplot(mod, aes(fitted, studentized.residuals)) +
+  geom_point() + 
+  geom_smooth(method = "lm", colour = "Red")+
+  theme_set(theme_bw(base_size = 8))+ 
+  labs(x = "Fitted Values", 
+       y = "Studentized Residual")
+p2
+```
+
+```{r likeac_4a_016, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot diagnostics
+p3 <- qplot(sample = mod$studentized.residuals, stat="qq") + 
+  theme_set(theme_bw(base_size = 8))+ 
+  labs(x = "Theoretical Values", 
+       y = "Observed Values")
+p3
+```
+
+```{r likeac_4a_017, echo=T, eval = T, message=FALSE, warning=FALSE}
+mod <- mod %>%
+  dplyr::arrange(studentized.residuals)
+# inspect reordered data
+head(mod)
+```
+
+We have now identified the problematic data points which are the points that have the IDs 376 and 360. We remove these points as well as the diagnostic values and repeat the analysis.
+
+```{r likeac_4a_018, echo=T, eval = T, message=FALSE, warning=FALSE}
+mod <- mod %>%
+  dplyr::filter(id != 376,
+                id != 360) %>%
+  # remove diagnostic statistics
+  dplyr::select(-dfb.1_, -dfb.Age, -dfb.Childl, -dfb.Chldll, -dfb.Chldnn,
+                -dfb.Childst, -dfb.Chldbb, -dfb.Childbra, -dfb.Childbri,
+                -dfb.Chldbrn, -dfb.Chldcs, -dfb.Chldcl, -dfb.Chldcn, 
+                -dfb.Chldct, -dfb.Childdav, -dfb.Childdev, -dfb.Childd,
+                -dfb.Chldth, -dfb.Childg, -dfb.Chldgr, -dfb.Childn, 
+                -dfb.Chldjc, -dfb.Chldjm, -dfb.Childje, -dfb.Chldjb, 
+                -dfb.Chldjn, -dfb.Chldjr, -dfb.Childjes, -dfb.Childjo,
+                -dfb.Chldjy, -dfb.Childjus, -dfb.Childkar, -dfb.Chldkv,
+                -dfb.Childkur, -dfb.Childmr, -dfb.Chldmy, -dfb.Chldmg,
+                -dfb.Chldml, -dfb.Chldmn, -dfb.Chldmrk, -dfb.Childp, 
+                -dfb.Chldpt, -dfb.Childras, -dfb.Chldrm, -dfb.Chldrl,
+                -dfb.Chldrc, -dfb.Childros, -dfb.Chldsr, -dfb.Chldstn,
+                -dfb.Chldss, -dfb.Chldtd, -dfb.Chldtm, -dfb.Chldtr, 
+                -dfb.Chldv, -dfb.Chldz, -dffit, -cov.r, -cook.d, -hat, 
+                -dfb.1_.1, -dfb.Age.1, -dfb.Childl.1, -dfb.Chldll.1,
+                -dfb.Chldnn.1, -dfb.Childst.1, -dfb.Chldbb.1, 
+                -dfb.Childbra.1, -dfb.Childbri.1, -dfb.Chldbrn.1, 
+                -dfb.Chldcs.1, -dfb.Chldcl.1, -dfb.Chldcn.1, 
+                -dfb.Chldct.1, -dfb.Childdav.1, -dfb.Childdev.1, 
+                -dfb.Childd.1, -dfb.Chldth.1, -dfb.Childg.1, 
+                -dfb.Chldgr.1, -dfb.Childn.1, -dfb.Chldjc.1, 
+                -dfb.Chldjm.1, -dfb.Childje.1, -dfb.Chldjb.1, 
+                -dfb.Chldjn.1, -dfb.Chldjr.1, -dfb.Childjes.1, 
+                -dfb.Childjo.1, -dfb.Chldjy.1, -dfb.Childjus.1, 
+                -dfb.Childkar.1, -dfb.Chldkv.1, -dfb.Childkur.1, 
+                -dfb.Childmr.1, -dfb.Chldmy.1, -dfb.Chldmg.1, 
+                -dfb.Chldml.1, -dfb.Chldmn.1, -dfb.Chldmrk.1, 
+                -dfb.Childp.1, -dfb.Chldpt.1, -dfb.Childras.1, 
+                -dfb.Chldrm.1, -dfb.Chldrl.1, -dfb.Chldrc.1, 
+                -dfb.Childros.1, -dfb.Chldsr.1, -dfb.Chldstn.1, 
+                -dfb.Chldss.1, -dfb.Chldtd.1, -dfb.Chldtm.1, 
+                -dfb.Chldtr.1, -dfb.Chldv.1, -dfb.Chldz.1, -dffit.1, 
+                -cov.r.1, -cook.d.1, -hat.1, -residuals, 
+                -standardized.residuals, -studentized.residuals, -id, 
+                -cooks.distance, -leverage, -covariance.ratios, -fitted)
+```
+
+We now repeat the analysis and begin by creating another boruta data set.
+
+```{r likeac_4a_019, echo=T, eval = T, message=FALSE, warning=FALSE}
+# create boruta data set
+borutamod <- mod
+# inspect data
+head(mod)
+```
+
+We can now begin with the statistical analysis of discourse *like* with attention-directing function. In a first step, we perform a Boruta analysis as a variable selection procedure to check which variables have any type of meaningful relationship with the use of discourse *like* with attention-directing function.
+
+```{r likeac_4a_020, echo=T, eval = T, message=FALSE, warning=FALSE}
+# load library
+library(Boruta)
+# run 1
+boruta.mod <- Boruta(AttentionDirecting ~.,data=borutamod)
+print(boruta.mod)
+```
+
+We remove variables that are confirmed as being unimportant and rerun the analysis.
+
+```{r likeac_4a_021, echo=T, eval = T, message=FALSE, warning=FALSE}
+borutamod <- borutamod %>%
+  dplyr::select(-Gender, - Like_Freq, -Mod_Freq, -Participants, -SituationType)
+# run 2
+boruta.mod <- Boruta(AttentionDirecting ~.,data=borutamod)
+print(boruta.mod)
+```
+
+We can visualize the results of the Boruta analysis.
+
+```{r likeac_4a_022, echo=T, eval = T, message=FALSE, warning=FALSE}
+plot(boruta.mod)
+```
+
+We can now proceed with the regression analysis.
+
+```{r likeac_4a_023, echo=T, eval = T, message=FALSE, warning=FALSE}
+# set options
+options(contrasts  =c("contr.treatment", "contr.poly"))
+data.dist <- datadist(mod)
+options(datadist = "data.dist")
+# create base glm line model
+m0.glm = glm(AttentionDirecting ~ 1, data = mod, family = binomial)
+# create base glmm line model
+m0.glmer = glmer(AttentionDirecting ~ (1|Child), data = mod, family = binomial, 
+                  control=glmerControl(optimizer="bobyqa"))
+# compare AICs
+aic.glmer<- AIC(logLik(m0.glmer))
+aic.glm <- AIC(logLik(m0.glm))
+aic.glmer; aic.glm
+```
+
+```{r likeac_4a_024, echo=T, eval = T, message=FALSE, warning=FALSE}
+# test random effects
+null.id = -2 * logLik(m0.glm) + 2 * logLik(m0.glmer)
+pchisq(as.numeric(null.id), df=1, lower.tail=F) 
+```
+
+The glmm has a significantly better model fit compared to the glm model. We now check if Age is a significant predictor for attention-directing uses of discourse *like*.
+
+```{r likeac_4a_025, echo=T, eval = T, message=FALSE, warning=FALSE}
+# add Age
+m1.glm <- update(m0.glm, .~.+Age)
+m1.glmer <- update(m0.glmer, .~.+Age)
+anova(m1.glmer, m0.glmer, test = "Chi")     
+Anova(m1.glmer, type = "III", test = "Chi")   
+```
+
+We have arrived at a minimal adequate model and proceed with model diagnostics and create the diagnostic plots.
+
+```{r likeac_4a_026, echo=T, eval = T, message=FALSE, warning=FALSE}
+# start plotting
+plot(m1.glmer, pch = 20, col = "black")         
+```
+
+We now check if the data contains data points that have an unacceptably high impact on the model by plotting the Cook's distance. To plot Cook's Distance, we create a glm object which also contains Turn as a predictor as it is included in the final glmer model in the random effect structure. This way, the predictions of the glm and the glmar model are identical.
+
+```{r likeac_4a_027, echo=T, eval = T, message=FALSE, warning=FALSE}
+m1b.glm <- update(m1.glm, .~.+ Child)
+# determine a cutoff for data points that have D-values higher than 4/(n-k-1) 
+cutoff <- 4/((nrow(mod)-length(m1b.glm$coefficients)-2))
+cutoff
+```
+
+The Cook's distance plot names three data points that may cause issues. Also, if we apply the data driven cutoff for Cook's distance (0.001814882), we would retain only 55 data points which is unacceptable. 
+
+We thus have to adapt the cutoff manually and plot the cook's distance values. 
+
+```{r likeac_4a_028, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot cook*s distance
+plot(m1b.glm, which=4, cook.levels = cutoff) 
+```
+
+There are three 3 data points that are suggested as potential outlierswhich is why we add influence statistics to our data to get some more information about data points that may require removing.
+
+```{r likeac_4a_029, echo=T, eval = T, message=FALSE, warning=FALSE}
+# extract influence statistics
+infl <- influence.measures(m1b.glm)       
+# add infl. statistics to data
+mod <- data.frame(mod, infl[[1]], infl[[2]]) 
+```
+
+We now add an index to the data to better identify problematic data points. Then, we order the data by the Cook's distance values and display the data to inspect the data points with the highest Cook's distance.
+
+```{r likeac_4a_030, echo=T, eval = T, message=FALSE, warning=FALSE}
+# create index for data
+mod$id <- 1:nrow(mod)
+mod <- mod[order(mod$cook.d, decreasing = T),]
+head(mod)
+```
+
+The diagnostics do not indicate that we have to remove data points as, overall, the Cook's distance is distributed  evenly and we proceed by extracting the model statistics, adding them to the data set, and creating additional model diagnostic plots. 
+
+```{r likeac_4a_031, echo=T, eval = T, message=FALSE, warning=FALSE}
+# add diagnostics
+mod$residuals <- resid(m1b.glm)
+mod$standardized.residuals <- rstandard(m1b.glm)
+mod$studentized.residuals <- rstudent(m1b.glm)
+mod$cooks.distance <- cooks.distance(m1b.glm)
+mod$dffit <- dffits(m1b.glm)
+mod$leverage <- hatvalues(m1b.glm)
+mod$covariance.ratios <- covratio(m1b.glm)
+mod$fitted <- m1b.glm$fitted.values
+# plot diagnostics
+p1 <- ggplot(mod, 
+              aes(studentized.residuals)) +
+  theme(legend.position = "none") +
+  theme_set(theme_bw(base_size = 8))+ 
+  geom_histogram(aes(y=..density..),
+                 binwidth = 1,
+                 colour="black",
+                 fill="white") +
+  labs(x = "Studentized Residual", y = "Density") + 
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(mod$studentized.residuals, na.rm = TRUE), 
+                            sd = sd(mod$studentized.residuals, na.rm = TRUE)), 
+                colour = "red", size = 1)
+p1
+```
+
+The diagnostic plots confirms that we will have to remove data points. To identify these points, we plot the fitted values against the studentized residuals.
+
+```{r likeac_4a_032, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot diagnostics
+p2 <- ggplot(mod, aes(fitted, studentized.residuals)) +
+  geom_point() + 
+  geom_smooth(method = "lm", colour = "Red")+
+  theme_set(theme_bw(base_size = 8))+ 
+  labs(x = "Fitted Values", 
+       y = "Studentized Residual")
+p2
+```
+
+```{r likeac_4a_033, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot diagnostics
+p3 <- qplot(sample = mod$studentized.residuals, stat="qq") + 
+  theme_set(theme_bw(base_size = 8))+ 
+  labs(x = "Theoretical Values", 
+       y = "Observed Values")
+p3
+```
+
+Now, we identify the data points that are identified as being problematic.
+
+```{r likeac_4a_034, echo=T, eval = T, message=FALSE, warning=FALSE}
+mod <- mod %>%
+  dplyr::arrange(studentized.residuals)
+# inspect data
+head(mod); mod[c(nrow(mod)-5:nrow(mod)), c(ncol(mod)-5:ncol(mod))]; nrow(mod)
+```
+
+We have now identified the problematic data points which are the points that have the IDs 50 and 51 as well as 253, 198, 107, 366, 211, 316. We remove these points as well as the diagnostic values and repeat the analysis.
+
+```{r likeac_4a_035, echo=T, eval = T, message=FALSE, warning=FALSE}
+rmv <- c(50, 51, 253, 198, 107, 366, 211, 316)
+# define not in
+`%notin%` <- Negate(`%in%`)
+mod <- mod %>%
+  dplyr::filter(id %notin% rmv) %>%
+  # remove diagnostic statistics
+  dplyr::select(-dfb.1_, -dfb.Age, -dfb.Childl, -dfb.Chldll, -dfb.Chldnn,
+                -dfb.Childst, -dfb.Chldbb, -dfb.Childbra, -dfb.Childbri,
+                -dfb.Chldbrn, -dfb.Chldcs, -dfb.Chldcl, -dfb.Chldcn, 
+                -dfb.Chldct, -dfb.Childdav, -dfb.Childdev, -dfb.Childd,
+                -dfb.Chldth, -dfb.Childg, -dfb.Chldgr, -dfb.Childn, 
+                -dfb.Chldjc, -dfb.Chldjm, -dfb.Childje, -dfb.Chldjb, 
+                -dfb.Chldjn, -dfb.Chldjr, -dfb.Childjes, -dfb.Childjo,
+                -dfb.Chldjy, -dfb.Childjus, -dfb.Childkar, -dfb.Chldkv,
+                -dfb.Childkur, -dfb.Childmr, -dfb.Chldmy, -dfb.Chldmg,
+                -dfb.Chldml, -dfb.Chldmn, -dfb.Chldmrk, -dfb.Childp, 
+                -dfb.Chldpt, -dfb.Childras, -dfb.Chldrm, -dfb.Chldrl,
+                -dfb.Chldrc, -dfb.Childros, -dfb.Chldsr, -dfb.Chldstn,
+                -dfb.Chldss, -dfb.Chldtd, -dfb.Chldtm, -dfb.Chldtr, 
+                -dfb.Chldv, -dfb.Chldz, -dffit, -cov.r, -cook.d, -hat, 
+                -dfb.1_.1, -dfb.Age.1, -dfb.Childl.1, -dfb.Chldll.1,
+                -dfb.Chldnn.1, -dfb.Childst.1, -dfb.Chldbb.1, 
+                -dfb.Childbra.1, -dfb.Childbri.1, -dfb.Chldbrn.1, 
+                -dfb.Chldcs.1, -dfb.Chldcl.1, -dfb.Chldcn.1, 
+                -dfb.Chldct.1, -dfb.Childdav.1, -dfb.Childdev.1, 
+                -dfb.Childd.1, -dfb.Chldth.1, -dfb.Childg.1, 
+                -dfb.Chldgr.1, -dfb.Childn.1, -dfb.Chldjc.1, 
+                -dfb.Chldjm.1, -dfb.Childje.1, -dfb.Chldjb.1, 
+                -dfb.Chldjn.1, -dfb.Chldjr.1, -dfb.Childjes.1, 
+                -dfb.Childjo.1, -dfb.Chldjy.1, -dfb.Childjus.1, 
+                -dfb.Childkar.1, -dfb.Chldkv.1, -dfb.Childkur.1, 
+                -dfb.Childmr.1, -dfb.Chldmy.1, -dfb.Chldmg.1, 
+                -dfb.Chldml.1, -dfb.Chldmn.1, -dfb.Chldmrk.1, 
+                -dfb.Childp.1, -dfb.Chldpt.1, -dfb.Childras.1, 
+                -dfb.Chldrm.1, -dfb.Chldrl.1, -dfb.Chldrc.1, 
+                -dfb.Childros.1, -dfb.Chldsr.1, -dfb.Chldstn.1, 
+                -dfb.Chldss.1, -dfb.Chldtd.1, -dfb.Chldtm.1, 
+                -dfb.Chldtr.1, -dfb.Chldv.1, -dfb.Chldz.1, -dffit.1, 
+                -cov.r.1, -cook.d.1, -hat.1, -residuals, 
+                -standardized.residuals, -studentized.residuals, -id, 
+                -cooks.distance, -leverage, -covariance.ratios, -fitted)
+nrow(mod)
+```
+
+We now repeat the analysis and begin by creating another boruta data set.
+
+```{r likeac_4a_036, echo=T, eval = T, message=FALSE, warning=FALSE}
+# create boruta data set
+borutamod <- mod
+# inspect data
+head(mod)
+```
+
+We can now begin with the statistical analysis of discourse *like* with attention-directing function. In a first step, we perform a Boruta analysis as a variable selection procedure to check which variables have any type of meaningful relationship with the use of discourse *like* with attention-directing function.
+
+```{r likeac_4a_037, echo=T, eval = T, message=FALSE, warning=FALSE}
+# load library
+library(Boruta)
+# run 1
+boruta.mod <- Boruta(AttentionDirecting ~.,data=borutamod)
+print(boruta.mod)
+```
+
+We remove variables that are confirmed as being unimportant and rerun the analysis.
+
+```{r likeac_4a_038, echo=T, eval = T, message=FALSE, warning=FALSE}
+borutamod <- borutamod %>%
+  dplyr::select(-Gender, - Like_Freq, -Mod_Freq, -Participants, -SituationType)
+# run 2
+boruta.mod <- Boruta(AttentionDirecting ~.,data=borutamod)
+print(boruta.mod)
+```
+
+We can visualize the results of the Boruta analysis.
+
+```{r likeac_4a_039, echo=T, eval = T, message=FALSE, warning=FALSE}
+png("images/Boruta_mod.png",  width = 1500, height = 750)
+par(mar = c(14, 8, 4, 2) + 0.1)
+plot(boruta.mod, cex.axis=2, las=2, xlab="", ylab = "", cex = 2, 
+     col = c(rep("grey50", 2), rep("grey90",3)))
+abline(v = 3.5, lty = "dashed")
+mtext("Predictors", 1, line = 13, at = 7, cex = 3)
+mtext("Control", 1, line = 13, at = 2, cex = 3)
+mtext("Importance", 2, line = 2.5, at = 15, cex = 3, las = 0)
+dev.off()
+plot(boruta.mod, cex.axis=1, las=2, xlab="", ylab = "", cex = 1, 
+     col = c(rep("grey50", 2), rep("grey90",3)))
+abline(v = 3.5, lty = "dashed")
+mtext("Predictors", 1, line = 4, at = 7, cex = 1)
+mtext("Control", 1, line = 4, at = 2, cex = 1)
+mtext("Importance", 2, line = 2.5, at = 15, cex = 1, las = 0)
+par(mar = c(5, 4, 4, 2) + 0.1)
+```
+
+We can now proceed with the regression analysis.
+
+```{r likeac_4a_040, echo=T, eval = T, message=FALSE, warning=FALSE}
+# set options
+options(contrasts  =c("contr.treatment", "contr.poly"))
+data.dist <- datadist(mod)
+options(datadist = "data.dist")
+# create base glm line model
+m0.glm = glm(AttentionDirecting ~ 1, data = mod, family = binomial)
+# create base glmm line model
+m0.glmer = glmer(AttentionDirecting ~ (1|Child), data = mod, family = binomial, 
+                  control=glmerControl(optimizer="bobyqa"))
+# compare AICs
+aic.glmer<- AIC(logLik(m0.glmer))
+aic.glm <- AIC(logLik(m0.glm))
+aic.glmer; aic.glm
+```
+
+```{r likeac_4a_041, echo=T, eval = T, message=FALSE, warning=FALSE}
+# test random effects
+null.id = -2 * logLik(m0.glm) + 2 * logLik(m0.glmer)
+pchisq(as.numeric(null.id), df=1, lower.tail=F) 
+```
+
+The glmm has a significantly better model fit compared to the glm model. We now check if Age is a significant predictor for attention-directing uses of discourse *like*.
+
+```{r likeac_4a_042, echo=T, eval = T, message=FALSE, warning=FALSE}
+# add Age
+m1.glm <- update(m0.glm, .~.+Age)
+m1.glmer <- update(m0.glmer, .~.+Age)
+anova(m1.glmer, m0.glmer, test = "Chi")     
+Anova(m1.glmer, type = "III", test = "Chi")   
+```
+
+We have arrived at a minimal adequate model and proceed with model diagnostics and create the diagnostic plots.
+
+```{r likeac_4a_043, echo=T, eval = T, message=FALSE, warning=FALSE}
+# start plotting
+plot(m1.glmer, pch = 20, col = "black")         
+```
+
+We now check if the data contains data points that have an unacceptably high impact on the model by plotting the Cook's distance. To plot Cook's Distance, we create a glm object which also contains Turn as a predictor as it is included in the final glmer model in the random effect structure. This way, the predictions of the glm and the glmar model are identical.
+
+```{r likeac_4a_044, echo=T, eval = T, message=FALSE, warning=FALSE}
+m1b.glm <- update(m1.glm, .~.+ Child)
+# determine a cutoff for data points that have D-values higher than 4/(n-k-1) 
+cutoff <- 4/((nrow(mod)-length(m1b.glm$coefficients)-2))
+cutoff
+```
+
+The Cook's distance plot names three data points that may cause issues. Also, if we apply the data driven cutoff for Cook's distance (0.001814882), we would retain only 55 data points which is unacceptable. 
+
+We thus have to adapt the cutoff manually and plot the cook's distance values. 
+
+```{r likeac_4a_045, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot cook*s distance
+plot(m1b.glm, which=4, cook.levels = cutoff) 
+```
+
+There are three 3 data points that are suggested as potential outliers which is why we add influence statistics to our data to get some more information about data points that may require removing.
+
+```{r likeac_4a_046, echo=T, eval = T, message=FALSE, warning=FALSE}
+# extract influence statistics
+infl <- influence.measures(m1b.glm)       
+# add infl. statistics to data
+mod <- data.frame(mod, infl[[1]], infl[[2]]) 
+```
+
+We now add an index to the data to better identify problematic data points. Then, we order the data by the Cook's distance values and display the data to inspect the data points with the highest Cook's distance.
+
+```{r likeac_4a_047, echo=T, eval = T, message=FALSE, warning=FALSE}
+# create index for data
+mod$id <- 1:nrow(mod)
+mod <- mod[order(mod$cook.d, decreasing = T),]
+head(mod)
+```
+
+The diagnostics do not indicate that we have to remove data points as, overall, the Cook's distance is distributed evenly and we proceed by extracting the model statistics, adding them to the data set, and creating additional model diagnostic plots. 
+
+```{r likeac_4a_048, echo=T, eval = T, message=FALSE, warning=FALSE}
+# add diagnostics
+mod$residuals <- resid(m1b.glm)
+mod$standardized.residuals <- rstandard(m1b.glm)
+mod$studentized.residuals <- rstudent(m1b.glm)
+mod$cooks.distance <- cooks.distance(m1b.glm)
+mod$dffit <- dffits(m1b.glm)
+mod$leverage <- hatvalues(m1b.glm)
+mod$covariance.ratios <- covratio(m1b.glm)
+mod$fitted <- m1b.glm$fitted.values
+# plot diagnostics
+p1 <- ggplot(mod, 
+              aes(studentized.residuals)) +
+  theme(legend.position = "none") +
+  theme_set(theme_bw(base_size = 8))+ 
+  geom_histogram(aes(y=..density..),
+                 binwidth = 1,
+                 colour="black",
+                 fill="white") +
+  labs(x = "Studentized Residual", y = "Density") + 
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(mod$studentized.residuals, na.rm = TRUE), 
+                            sd = sd(mod$studentized.residuals, na.rm = TRUE)), 
+                colour = "red", size = 1)
+p1
+```
+
+The diagnostic plots confirm that we will have to remove data points again. To identify these points, we plot the fitted values against the studentized residuals.
+
+```{r likeac_4a_049, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot diagnostics
+p2 <- ggplot(mod, aes(fitted, studentized.residuals)) +
+  geom_point() + 
+  geom_smooth(method = "lm", colour = "Red")+
+  theme_set(theme_bw(base_size = 8))+ 
+  labs(x = "Fitted Values", 
+       y = "Studentized Residual")
+p2
+```
+
+```{r likeac_4a_050, echo=T, eval = T, message=FALSE, warning=FALSE}
+# plot diagnostics
+p3 <- qplot(sample = mod$studentized.residuals, stat="qq") + 
+  theme_set(theme_bw(base_size = 8))+ 
+  labs(x = "Theoretical Values", 
+       y = "Observed Values")
+p3
+```
+
+The additional model diagnostic plots do not look perfect. However, we proceed by inspecting the accuracy of the model summarizing the final minimal adequate model.
+
+```{r likeac_4a_051, echo=T, eval = T, message=FALSE, warning=FALSE}
+# calculate accuracy
+mod$PredictedModificationProbability <- predict(m1.glmer, mod, type="response")
+mod$PredictedModificationProbability <- ifelse(mod$PredictedModificationProbability >.5, 1, 0)
+# load library
+library(caret)
+# create confusion matrix
+confusionMatrix(as.factor(mod$PredictedModificationProbability), as.factor(mod$AttentionDirecting))
+```
+
+The model has a very good accuracy (71.66% accuracy) against a base-line model accuracy of only 59.63% and it performs significantly better than  the  base-line model (p-value = 0.0000008389). We call the model summary.
+
+```{r likeac_4a_052, echo=T, eval = T, message=FALSE, warning=FALSE}
+# call model summary
+summary(m1.glmer)
+```
+
+We use the reported deviances to calculate the explained variance (nulldeviance-finaldeviance)/(nulldeviance). We also call the baseline model to extract the null deviance.
+
+```{r likeac_4a_053, echo=T, eval = T, message=FALSE, warning=FALSE}
+# call model summary
+summary(m0.glmer)
+```
+
+
+```{r likeac_4a_054, echo=T, eval = T, message=FALSE, warning=FALSE}
+# calculate explained variance
+((494.6-460.5)/494.6)*100
+```
+
+The model explains 6.89446% more deviance than an intercept-only baseline model. We can now summarize the final minimal adequate model. To do so, we write a summary function for the mixed-effects binomial logistic regression model.
+
+```{r likeac_4a_055, echo=T, eval = T, message=FALSE, warning=FALSE}
+# write summary funtion
+meblrm.summary <- function(glm0, glm1, glmer0, glmer1, dpvar, data) {
+  p.nice <- function(z) {
+    as.vector(unlist(sapply(z, function(w) {
+      ifelse(w < .001, return("p < .001***"),
+      ifelse(w < .01, return("p <  .01 **"),
+      ifelse(w < .05, return("p <  .05  *"), 
+      ifelse(w < .1, return("p <  .10(*)"), return("n.s."))))) } ))) }
+  
+  LLglm0 <- logLik(glm0)
+  LLglmer0 <- logLik(glmer0)
+  LLR01 <- as.vector(- 2 * (LLglm0 - LLglmer0))
+  df <- attr(LLglmer0, "df") - attr(LLglm0, "df")
+  p <- pchisq(LLR01, df, lower.tail = FALSE)
+  headranef <- c("Group(s)", "Variance", "Std. Dev.", " ", "  ", "L.R. X2", "DF", "Pr", "Significance")
+  ranef <- c(names(summary(glmer1)[[9]]), round(summary(glmer1)[[13]][[1]][[1]],2), 
+  round(as.data.frame(VarCorr(glmer1))[[5]], 2), 
+    "", "", round(LLR01, 2), df, round(p, 4), p.nice(p))
+
+# take vif-mer function from https://github.com/aufrank/R-hacks/blob/master/mer-utils.R on 14th August, 2014
+vif.mer <- function (fit) {
+  ## adapted from rms::vif
+  v <- vcov(fit)
+  nam <- names(fixef(fit))
+  ## exclude intercepts
+  ns <- sum(1 * (nam == "Intercept" | nam == "(Intercept)"))
+  if (ns > 0) {
+  v <- v[-(1:ns), -(1:ns), drop = FALSE]
+  nam <- nam[-(1:ns)]
+  }
+  d <- diag(v)^0.5
+  v <- diag(solve(v/(d %o% d)))
+  names(v) <- nam
+  v
+}
+kappa.mer <- function (fit, scale = TRUE, center = FALSE,
+  add.intercept = TRUE, exact = FALSE) {
+  X <- fit@X
+  nam <- names(fixef(fit))
+  ## exclude intercepts
+  nrp <- sum(1 * (nam == "(Intercept)"))
+  if (nrp > 0) {
+    X <- X[, -(1:nrp), drop = FALSE]
+    nam <- nam[-(1:nrp)]
+    }
+  if (add.intercept) {
+    X <- cbind(rep(1), scale(X, scale = scale, center = center))
+    kappa(X, exact = exact)
+    } else {
+    kappa(scale(X, scale = scale, center = scale), exact = exact)
+  }
+}
+colldiag.mer <- function (fit, scale = TRUE, center = FALSE,
+  add.intercept = TRUE) {
+  ## adapted from perturb::colldiag, method in Belsley, Kuh, and
+  ## Welsch (1980). look for a high condition index (> 30) with
+  ## more than one high variance propotion. see ?colldiag for more
+  ## tips.
+  result <- NULL
+  if (center)
+  add.intercept <- FALSE
+  if (is.matrix(fit) || is.data.frame(fit)) {
+    X <- as.matrix(fit)
+    nms <- colnames(fit)
+    }
+  else if (class(fit) == "mer") {
+    nms <- names(fixef(fit))
+    X <- fit@X
+      if (any(grepl("(Intercept)", nms))) {
+      add.intercept <- FALSE
+    }
+  }
+  X <- X[!is.na(apply(X, 1, all)), ]
+  if (add.intercept) {
+    X <- cbind(1, X)
+    colnames(X)[1] <- "(Intercept)"
+    }
+  X <- scale(X, scale = scale, center = center)
+  svdX <- svd(X)
+  svdX$d
+  condindx <- max(svdX$d)/svdX$d
+  dim(condindx) <- c(length(condindx), 1)
+  Phi = svdX$v %*% diag(1/svdX$d)
+  Phi <- t(Phi^2)
+  pi <- prop.table(Phi, 2)
+  colnames(condindx) <- "cond.index"
+  if (!is.null(nms)) {
+    rownames(condindx) <- nms
+    colnames(pi) <- nms
+    rownames(pi) <- nms
+  } else {
+    rownames(condindx) <- 1:length(condindx)
+    colnames(pi) <- 1:ncol(pi)
+    rownames(pi) <- 1:nrow(pi)
+  }
+  result <- data.frame(cbind(condindx, pi))
+  zapsmall(result)
+}
+maxcorr.mer <- function (fit, exclude.intercept = TRUE) {
+  so <- summary(fit)
+  corF <- so@vcov@factors$correlation
+  nam <- names(fixef(fit))
+  ## exclude intercepts
+  ns <- sum(1 * (nam == "Intercept" | nam == "(Intercept)"))
+  if (ns > 0 & exclude.intercept) {
+    corF <- corF[-(1:ns), -(1:ns), drop = FALSE]
+    nam <- nam[-(1:ns)]
+  }
+  corF[!lower.tri(corF)] <- 0
+  maxCor <- max(corF)
+  minCor <- min(corF)
+  if (abs(maxCor) > abs(minCor)) {
+    zapsmall(maxCor)
+  } else {
+    zapsmall(minCor)
+  }
+}
+
+# continue with setting up table
+  coefs <- summary(glmer1)[[10]]
+
+  se <- sqrt(diag(vcov(glmer1)))
+  cilwr <- fixef(glmer1) - 1.96 * se
+  ciupr <- fixef(glmer1) + 1.96 * se
+  coef.df <- data.frame(
+    round(coefs[, 1], 2),
+    c("", round(vif.mer(glmer1), 2)),
+    round(exp(coefs[, 1]), 2),
+    round(exp(cilwr), 2),
+    round(exp(ciupr), 2),
+    round(coefs[, 2], 2),
+    round(coefs[, 3], 2),
+    round(coefs[, 4], 4),
+    p.nice(coefs[, 4]))
+  colnames(coef.df) <- c(colnames(coefs)[1],
+    "VIF",
+    "OddsRatio",
+    "CI(2.5%)",
+    "CI(97.5%)",
+    colnames(coefs)[2],
+    colnames(coefs)[3],
+    colnames(coefs)[4],
+    "Significance")
+    
+  coef.df <- rbind(colnames(coef.df), coef.df)
+  coef.df <- as.data.frame(coef.df)
+  colnames(coef.df) <- c(colnames(coefs)[1],
+    "VIF",
+    "OddsRatio",
+    "CI(2.5%)",
+    "CI(97.5%)",
+    colnames(coefs)[2],
+    colnames(coefs)[3],
+    colnames(coefs)[4],
+    "Significance")
+    
+  mdl.statz <- c("", "", "", "", "", "", "", "", "Value")
+  groups <- c("", "", "", "", "", "", "", "", summary(glmer1)[[9]][[1]])
+  nbcases <- c("", "", "", "", "", "", "", "", length(fitted(glmer1)))
+  obs0 <- c("", "", "", "", "", "", "", "", sum(dpvar == 0))
+  obs1  <- c("", "", "", "", "", "", "", "", sum(dpvar == 1))
+  resdev <- c("", "", "", "", "", "", "", "", round(summary(glmer1)[[3]][[1]][[8]], 2))
+
+  logisticPseudoR2s <- function(glm0, glmer0, glmer1) {
+    dev <- deviance(glmer1)
+    nullDev <- deviance(glmer0)
+    modelN <-  length(fitted(glmer1))
+    
+    nullDev.glm <- glm0$null.deviance
+    R.l.glm <-  1-dev/nullDev.glm
+    R.cs.glm <- 1-exp(-(nullDev.glm-dev)/modelN)
+    R.n.glm <- R.cs.glm/(1-(exp(-(nullDev.glm/modelN))))
+    
+    return(c(R.l.glm,      # Hosmer and Lemeshow R^2
+      R.cs.glm,            # Cox and Snell R^2
+      R.n.glm))            # Nagelkerke R^2
+  }
+
+  r2s <- logisticPseudoR2s(glm0, glmer0, glmer1)
+  R2Nagelkerke <- c("", "","", "", "", "", "", "",round(r2s[[3]], 3))
+  R2HosmerLemeshow <- c("", "","", "", "", "", "", "",round(r2s[[1]], 3))
+  R2CoxSnell <- c("", "","", "", "", "", "", "",round(r2s[[2]], 3))
+
+  probs <- predict(glmer1, data, type = "response")
+  modstatz <- somers2(probs, as.numeric(dpvar)-1)
+
+  C <- c("", "", "", "", "", "", "", "",round(modstatz[[1]], 3))
+  Dxy <- c("", "", "", "", "", "", "", "",round(modstatz[[2]], 3))
+  AIC <- c("", "", "", "", "", "", "", "", round(summary(glmer1)[[14]][[1]], 2))
+  BIC <- c("", "", "", "", "", "", "", "", round(summary(glmer1)[[14]][[2]], 2))
+
+
+  dpvarneg <- sapply(dpvar, function(x) ifelse(x == 1, 0, 1))
+  correct <- sum(dpvar * (predict(glmer1, type = "response") >= 0.5)) + sum(dpvarneg * (predict(glmer1, type="response") < 0.5))
+  tot <- length(dpvar)
+  predict.acc <- (correct/tot)*100 
+
+  Accuracy <- c("", "", "", "", "", "", "", "", paste(round(predict.acc, 2), "%", sep = "", collapse = ""))
+  
+  L0 <- logLik(glm0)
+  L1 <- logLik(glmer1)
+  L01 <- as.vector(- 2 * (L0 - L1))
+  df <- attr(L1, "df") - attr(L0, "df")
+    
+  ModelLikelihoodRatioTest <- c("", "", "", "", "",
+    paste("L.R. X2: ", round(L01, 2), sep = "", collapse = ""),
+    paste("DF: ", df, sep = "", collapse = ""),
+    paste("p-value: ", round(pchisq(L01, df, lower.tail = FALSE), 5), sep = "", collapse = ""),
+    paste("sig: ", p.nice(pchisq(L01, df, lower.tail = FALSE)), sep = "", collapse = ""))
+
+  ranef.tb <- rbind(ranef)
+  ranef.df <- as.data.frame(ranef.tb)
+  colnames(ranef.df) <- colnames(coef.df)
+    
+  gblstz.tb <- rbind(mdl.statz, groups, nbcases, obs0, obs1, resdev,
+    R2Nagelkerke, R2HosmerLemeshow, R2CoxSnell, C, Dxy, AIC, BIC, Accuracy, ModelLikelihoodRatioTest)
+  gblstz.df <- as.data.frame(gblstz.tb)
+  colnames(gblstz.df) <- colnames(coef.df)
+
+  blr.tb <- rbind(ranef.df, coef.df, gblstz.df)
+  colnames(blr.tb) <- headranef
+  rownames(blr.tb) <- c("Random Effect(s)", "Fixed Effect(s)", rownames(coefs),
+    "Model statistics", "Number of Groups", "Number of cases in model", 
+    "Observed misses", "Observed successes",
+    "Residual deviance", "R2 (Nagelkerke)", "R2 (Hosmer & Lemeshow)",
+    "R2 (Cox & Snell)", "C", "Somers' Dxy", "AIC", "BIC", "Prediction accuracy", "Model Likelihood Ratio Test")
+  blr.df <- as.data.frame(blr.tb)
+return(blr.df)
+}
+```
+
+Now we can apply the summary function to the models that we have created.
+
+```{r likeac_4a_056, echo=T, eval = T, message=FALSE, warning=FALSE}
+# set up summary table
+mblrm_mod <- meblrm.summary(m0.glm, m1.glm, m0.glmer, m1.glmer, mod$AttentionDirecting, mod) 
+# save results to disc
+write.table(mblrm_mod, "datatables/mblrm_mod_pp.txt", sep="\t")
+mblrm_mod
+```
+
+We now save summary of the final minimal adequate model and check other model summaries.
+
+```{r likeac_4a_057, echo=T, eval = T, message=FALSE, warning=FALSE}
+# Anova summary
+mblrm_mod_Anova <- Anova(m1.glmer, type = "III", test = "Chi")
+mblrm_mod_Anova
+```
+
+We save this new summary and store the effect sizes of the predictors.
+
+```{r likeac_4a_058, echo=T, eval = T, message=FALSE, warning=FALSE}
+# save results to disc
+write.table(mblrm_mod_Anova, "datatables/mblrm_mod_Anova_pp.txt", sep="\t")
+# extract effecst sizes
+effectage <- anova(m0.glmer, m1.glmer, test = "Chi")
+effectage
+```
+
+We now create a data set for plotting the results of the analysis.
+
+```{r likeac_4a_059, echo=T, eval = T, message=FALSE, warning=FALSE}
+#summary(mod$Age)
+Age <- seq(3.6, 10.5, .1)
+#names(table(mod$Child))
+Child <- names(table(mod$Child))
+pd <- data.frame(
+  rep(Child, each = length(Age)),
+  rep(Age,length(Child)))
+colnames(pd) <- c("Child", "Age")
+pd$PredictedModificationProbability <- predict(m1.glmer, pd, type = "response")
+# inspect data
+head(pd)
+```
+
+In a first step, we plot the effect of Age.
+
+```{r likeac_4a_060, echo=T, eval = T, message=FALSE, warning=FALSE}
+p4d <- pd
+p4 <- ggplot(p4d, aes(Age, PredictedModificationProbability)) +
+  geom_smooth(color = "gray20", se = F) +  
+  theme_set(theme_bw(base_size = 15)) +
+   theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(legend.position="none") +
+  labs(x = "Age of Child", y = "Predicted Probability \n of attention-directing discourse like") +
+  scale_color_manual(values = c("grey30")) +
+    scale_x_continuous(name = "Age of Child",
+                     breaks = seq(3, 11, 1),
+                     labels= seq(3, 11, 1)) +
+  ggsave(file = paste(imageDirectory, "PredictedMod.png" ,sep="/"), 
+       height = 4,  width = 7, dpi = 320)
+p4
+```
+
+Now, we plot the adjustments to the intercept to inspect the random effects.
+
+```{r likeac_4a_061, echo=T, eval = T, message=FALSE, warning=FALSE}
+randomtb <- ranef(m1.glmer)
+rndmchild <- as.vector(unlist(randomtb$`Child`))
+child <- as.vector(unlist(rownames(randomtb$`Child`)))
+rndmchildtb <- data.frame(child, rndmchild)
+colnames(rndmchildtb) <- c("Child", "Intercept")
+rndmchildtb <- rndmchildtb[order(rndmchildtb$Intercept, decreasing = T),]
+rndmchildtb
+
+p5 <- ggplot(rndmchildtb, aes(Child, Intercept)) +
+  geom_point(aes(reorder(Child, -Intercept, fun = Intercept), y=Intercept)) +
+  coord_cartesian(ylim = c(-1.5, 1.5)) +
+  theme_set(theme_bw(base_size = 15)) +
+  theme(legend.position="none", 
+        axis.text.x = element_text(size=15, angle=90),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_x_discrete(breaks = rndmchildtb$Child[seq(1,length(rndmchildtb$Child),3)]) +
+  labs(x = "Child \n(only selected children displayed)", y = "Adjustment to Intercept")
+ggsave(file = paste(imageDirectory,"RandomChildMod.png",sep="/"), 
+       height = 5,  width = 7.5,  dpi = 320)
+# activate (remove #) to show
+p5
+```
+
+We have reached the end of Part 4a of the analysis.

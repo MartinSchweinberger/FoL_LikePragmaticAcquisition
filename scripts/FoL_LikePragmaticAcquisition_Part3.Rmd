@@ -1,0 +1,646 @@
+---
+title: "On the L1-acquisition of discourse like - Part 4"
+author: "Anonymous"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  bookdown::html_document2: default
+bibliography: bibliography.bib
+link-citations: yes
+---
+
+This document shows an analysis that was performed with the aim of investigating the acquiasition of discourse *like* with modifying function in American English based on data from the *Child Language Data Exchange System* (CHILDES). The following represents part 4a of this analysis.
+
+# Preparation
+
+* Clean workspace
+* Activate packages
+* Set options
+* Define paths
+
+```{r likeac_4_01}
+# load packages
+library(tidyverse)
+library(here)
+library(partykit)
+library(ggparty)
+# read in data
+data <- base::readRDS(here::here("data", "datadmlike.rda")) %>%
+  # remove superfluous variables
+  dplyr::select(-DiscourseLike) %>%
+  # factorize variables
+  dplyr::mutate_if(is.character, factor)
+# inspect data
+glimpse(data)
+
+head(data)
+```
+
+
+# Statistical Analysis
+
+## Function-based Analysis
+
+### CIT
+
+```{r likeac_4_05}
+# set.seed (to store random numbers and thus make results reproducible)
+set.seed(20201121) 
+# create initial conditional inference tree model
+citd.ctree <- partykit::ctree(Function ~ Age + Participants + Gender + SituationType + 
+                                Like_Freq + Att_Freq + Rep_Freq + Cog_Freq +Spe_Freq, data = data)#,
+                              #control = ctree_control(mtry = 3))
+# extract p-values
+pvals <- unlist(nodeapply(citd.ctree, ids = nodeids(citd.ctree), function(n) info_node(n)$p.value))
+pvals <- pvals[pvals <.05]
+# plotting
+ggparty(citd.ctree) +
+  geom_edge() +
+  geom_edge_label() +
+  geom_node_label(line_list = list(aes(label = splitvar),
+                                   aes(label = paste0("N=", nodesize, ", p", 
+                                                      ifelse(pvals < .001, "<.001", paste0("=", round(pvals, 3)))), 
+                                       size = 10)),
+                  line_gpar = list(list(size = 13), 
+                                   list(size = 10)), 
+                  ids = "inner") +
+  geom_node_label(aes(label = paste0("Node ", id, ", N = ", nodesize)),
+    ids = "terminal", nudge_y = 0.01, nudge_x = 0.01) +
+  geom_node_plot(gglist = list(
+    geom_bar(aes(x = "", fill = Function),
+             position = position_dodge(), color = "black"),
+    theme_minimal(),
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom"),
+      scale_fill_manual(values = c("gray80", "gray60", "gray40", "gray20")),
+      scale_y_continuous(breaks = seq(0, 100, 20),
+                         limits = c(0, 100)),
+    xlab(""), 
+    ylab("Frequency"),
+      geom_text(aes(x = "", group = Function,
+                    label = stat(count)),
+                stat = "count", 
+                position = position_dodge(0.9), vjust = -0.7)),
+    shared_axis_labels = TRUE) 
+ggsave(file = here::here("images", "CIT.png"),
+         height = 5,  width = 10, dpi = 320)
+```
+
+
+```{r likeac_4_07}
+# plotting
+ggparty(citd.ctree) +
+  geom_edge() +
+  geom_edge_label() +
+  geom_node_label(line_list = list(aes(label = splitvar),
+                                   aes(label = paste0("N=", nodesize, ", p", 
+                                                      ifelse(pvals < .001, "<.001", paste0("=", round(pvals, 3)))), 
+                                       size = 10)),
+                  line_gpar = list(list(size = 13), 
+                                   list(size = 10)), 
+                  ids = "inner") +
+  geom_node_label(aes(label = paste0("Node ", id, ", N = ", nodesize)),
+    ids = "terminal", nudge_y = 0.01, nudge_x = 0.01) +
+  geom_node_plot(gglist = list(
+    geom_bar(aes(x = "", fill = Function),
+             position = position_fill(), color = "black"),
+    theme_minimal(),
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom"),
+      scale_fill_manual(values = c("gray80", "gray60", "gray40", "gray20")),
+      scale_y_continuous(breaks = seq(0, 1, .2),
+                         limits = c(0, 1)),
+    xlab(""), 
+    ylab("Probability")),
+    shared_axis_labels = TRUE) 
+ggsave(file = here::here("images", "CIT_fill.png"),
+         height = 5,  width = 10, dpi = 320)
+```
+
+### Boruta
+
+We can now begin with the statistical analysis of discourse *like* with modifying function. In a first step, we perform a Boruta analysis as a variable selection procedure to check which variables have any type of meaningful relationship with the use of discourse *like* with modifying function.
+
+```{r likeac_4_09}
+# load library
+library(Boruta)
+# rename Like_freq
+bdata <- data
+# run 1
+set.seed(20201121)
+boruta1 <- Boruta(Function ~.,data=bdata)
+print(boruta1)
+```
+
+We remove variables that are confirmed as being unimportant and rerun the analysis.
+
+```{r likeac_4_11}
+bdata <- bdata %>%
+  dplyr::select(Function, names(boruta1$finalDecision)[which(boruta1$finalDecision != "Rejected")])
+# run 2
+set.seed(20201121)
+boruta2 <- Boruta(Function ~.,data=bdata)
+print(boruta2)
+```
+
+```{r likeac_4_13}
+bdata <- bdata %>%
+  dplyr::select(Function, names(boruta1$finalDecision)[which(boruta1$finalDecision == "Confirmed")])
+# run 3
+set.seed(20201121)
+boruta3 <- Boruta(Function ~.,data=bdata)
+print(boruta3)
+```
+
+We can visualize the results of the Boruta analysis.
+
+```{r likeac_4_15}
+library(ggplot2)
+library(tidyr)
+library(stringr)
+borutadf <- as.data.frame(boruta3$ImpHistory) %>%
+  gather(Variable, Importance, Age:shadowMin) %>%
+  mutate(Type = ifelse(str_detect(Variable, "shadow"), "Control", "Predictor")) %>%
+  mutate(Type = factor(Type),
+         Variable = factor(Variable))
+ggplot(borutadf, aes(x = reorder(Variable, Importance, mean), y = Importance, fill = Type)) + 
+  geom_boxplot() +
+  geom_vline(xintercept=3.5, linetype="dashed", color = "black") +
+  scale_fill_manual(values = c("gray80", "gray40")) +
+  theme_bw() + 
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle=90)) +
+  labs(x = "")
+ggsave(file = here::here("images", "Boruta.png"),
+         height = 5,  width = 10, dpi = 320)
+```
+
+## Speaker-based analysis
+
+```{r spb_dpro1}
+# read in data
+speakers <- read.delim(here::here("datatables", "speakers.txt"), sep = "\t", header=TRUE, quote = "", skipNul = T) %>%
+  dplyr::mutate(DiscourseLike_Raw = DiscourseLike,
+                DiscourseLike = round(DiscourseLike/WordCount*1000, 3),
+                Attention_Raw = Attention,
+                Attention = round(Attention/WordCount*1000, 3),
+                Repair_Raw = Repair,
+                Repair = round(Repair/WordCount, 3),
+                Cognitive_Raw = Cognitive,
+                Cognitive = round(Cognitive/WordCount*1000, 3),
+                Specification_Raw = Specification,
+                Specification = round(Specification/WordCount*1000, 3),
+                Child = str_remove_all(File, ".*/"),
+                Child = str_sub(Child, 1, 3))
+# create child based-data set
+chi <- speakers %>%
+  dplyr::filter(Locutor == "Child")
+# extract frequencies in caregivers input
+mot <- speakers %>%
+  dplyr::filter(Locutor == "PrimaryCaregiver") %>%
+  dplyr::select(File,  DiscourseLike, Attention, Repair, Cognitive, Specification) %>%
+  dplyr::rename(Like_Freq = DiscourseLike, 
+                Att_Freq = Attention, 
+                Rep_Freq = Repair, 
+                Cog_Freq = Cognitive, 
+                Spe_Freq = Specification)
+# combine data
+child <- dplyr::left_join(chi, mot, by = "File") %>%
+  dplyr::select(-Cohort, -Situation, -Attention_Raw, -Repair_Raw, -Cognitive_Raw, -Specification_Raw, 
+                -AgeCategory, -File, -WordCount, -Locutor) %>%
+  dplyr::mutate(Child = factor(Child),
+                Gender = factor(Gender),
+                SituationType = factor(SituationType)) %>%
+  na.omit() %>%
+  unique()
+# inspect data
+head(child)
+```
+
+## Discourse like by speaker
+
+```{r spb_dpro2}
+likespk <- child
+# inspect data
+head(likespk)
+```
+
+### CIT
+
+
+```{r likeac_4_17a}
+# set.seed (to store random numbers and thus make results reproducible)
+set.seed(2019120202) 
+# create initial conditional inference tree model
+citd.ctree <- partykit::ctree(DiscourseLike ~ Age + Gender + SituationType + 
+                                Like_Freq, data = likespk)
+# extract p-values
+pvals <- unlist(nodeapply(citd.ctree, ids = nodeids(citd.ctree), function(n) info_node(n)$p.value))
+pvals <- pvals[pvals <.05]
+# plotting
+ggparty(citd.ctree) +
+  geom_edge() +
+  geom_edge_label() +
+  geom_node_label(line_list = list(aes(label = splitvar),
+                                   aes(label = paste0("N=", nodesize, ", p", 
+                                                      ifelse(pvals < .001, "<.001", paste0("=", round(pvals, 3)))), 
+                                       size = 10)),
+                  line_gpar = list(list(size = 13), 
+                                   list(size = 10)), 
+                  ids = "inner") +
+  geom_node_label(aes(label = paste0("Node ", id, ", N = ", nodesize)),
+    ids = "terminal", nudge_y = 0.01, nudge_x = 0.01) +
+  geom_node_plot(gglist = list(
+#    geom_boxplot(aes(x = "", y = DiscourseLike)),
+    stat_summary(aes(x = "", y = DiscourseLike), fun = mean, geom = "point"),
+    stat_summary(aes(x = "", y = DiscourseLike), fun.data = mean_cl_boot,
+                 geom = "errorbar", width = 0.2),
+    theme_minimal(),
+    theme(#panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+          plot.margin = margin(.1, .1, .1, .1, "cm"),),
+      scale_y_continuous(breaks = seq(0, 10, 2), limits = c(0, 10)),
+    xlab(""), 
+    ylab("Predicted frequency\n(per 1,000 words)")),
+    shared_axis_labels = TRUE)
+ggsave(file = here::here("images", "Fig3.png"),
+         height = 7,  width = 12, dpi = 320)
+```
+
+```{r likeac_4_17b}
+plot(citd.ctree)
+```
+
+
+### Regression analysis
+
+```{r install2, eval = F}
+install.packages("lme4")
+install.packages("sjPlot")
+install.packages("glmulti")
+```
+
+
+
+```{r}
+library(lme4)
+library(sjPlot)
+library(glmulti)
+m0 <- lmer(DiscourseLike ~ (1 | Child), data = child)
+sjPlot::tab_model(m0)
+```
+
+
+
+
+```{r}
+# wrapper function for linear mixed-models
+glmer.glmulti <- function(formula,data, random="",...){
+  lmer(paste(deparse(formula),random), data=data, ...)
+}
+# define formular
+form_glmulti = as.formula(paste("DiscourseLike ~ Age + Gender + SituationType + Like_Freq"))
+# multi selection for glmer
+mfit <- glmulti(form_glmulti,random="+(1 | Child)", 
+                data = child, method = "h", fitfunc = glmer.glmulti,
+                crit = "bic", intercept = TRUE, marginality = FALSE, level = 2)
+# extract best models
+top <- weightable(mfit)
+top <- top[1:5,]
+# inspect top 5 models
+top
+```
+
+
+```{r}
+m1 <- lmer(DiscourseLike ~ (1 | Child) + Age + Like_Freq + SituationType:Like_Freq, data = child)
+sjPlot::tab_model(m1)
+```
+
+
+
+```{r}
+sjPlot::plot_model(m1, type = "pred", terms = c("Age", "Like_Freq", "SituationType")) +
+  theme_bw()
+```
+
+
+
+
+### Boruta
+
+We can now begin with the statistical analysis of discourse *like* with modifying function. In a first step, we perform a Boruta analysis as a variable selection procedure to check which variables have any type of meaningful relationship with the use of discourse *like* with modifying function.
+
+```{r likeac_4_09}
+# rename Like_freq
+bdataspk <- likespk
+# run 1
+set.seed(20201121)
+boruta1 <- Boruta(DiscourseLike ~ Age + Gender + SituationType + Like_Freq, data=bdataspk)
+print(boruta1)
+```
+
+We remove variables that are confirmed as being unimportant and rerun the analysis.
+
+```{r likeac_4_11}
+bdataspk <- bdataspk %>%
+  dplyr::select(DiscourseLike, names(boruta1$finalDecision)[which(boruta1$finalDecision != "Rejected")])
+# run 2
+set.seed(20201121)
+borutaspk2 <- Boruta(DiscourseLike ~.,data=bdataspk)
+print(borutaspk2)
+```
+
+```{r likeac_4_13}
+bdataspk <- bdataspk %>%
+  dplyr::select(DiscourseLike, names(boruta1$finalDecision)[which(boruta1$finalDecision == "Confirmed")])
+# run 3
+set.seed(20201121)
+borutaspk3 <- Boruta(DiscourseLike ~.,data=bdataspk)
+print(borutaspk3)
+```
+
+
+
+We can visualize the results of the Boruta analysis.
+
+```{r likeac_4_15}
+borutaspkdf <- as.data.frame(borutaspk3$ImpHistory) %>%
+  gather(Variable, Importance, Age:shadowMin) %>%
+  mutate(Type = ifelse(str_detect(Variable, "shadow"), "Control", "Predictor")) %>%
+  mutate(Type = factor(Type),
+         Variable = factor(Variable))
+ggplot(borutaspkdf, aes(x = reorder(Variable, Importance, mean), y = Importance, fill = Type)) + 
+  geom_boxplot() +
+  geom_vline(xintercept=3.5, linetype="dashed", color = "black") +
+  scale_fill_manual(values = c("gray80", "gray40")) +
+  theme_bw() + 
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle=90)) +
+  labs(x = "")
+ggsave(file = here::here("images", "Boruta_spk.png"),
+         height = 5,  width = 10, dpi = 320)
+```
+
+
+## Extraction of mean values
+
+```{r spb_dpro3}
+old <- likespk %>%
+  dplyr::select(Age, DiscourseLike) %>%
+  dplyr::filter(Age > 7.85) %>%
+  dplyr::summarize(DiscourseLike = mean(DiscourseLike),
+          N = length(Age))
+old
+```
+
+```{r spb_dpro3}
+young <- likespk %>%
+  dplyr::select(Age, DiscourseLike) %>%
+  dplyr::filter(Age <= 7.85) %>%
+  dplyr::summarize(DiscourseLike = mean(DiscourseLike),
+          N = length(Age))
+young
+```
+
+```{r spb_dpro3}
+youngformal <- likespk %>%
+  dplyr::select(Age, SituationType, DiscourseLike) %>%
+  dplyr::filter(Age <= 7.85,
+                SituationType == "formal") %>%
+  dplyr::summarize(DiscourseLike = mean(DiscourseLike),
+          N = length(Age))
+youngformal
+```
+
+```{r spb_dpro3}
+youngformallow <- likespk %>%
+  dplyr::select(Age, SituationType, Like_Freq, DiscourseLike) %>%
+  dplyr::filter(Age <= 7.85,
+                SituationType == "informal",
+                Like_Freq <= 2.542) %>%
+  dplyr::summarize(DiscourseLike = mean(DiscourseLike),
+          N = length(Age))
+youngformallow
+```
+
+```{r spb_dpro3}
+youngformalhigh <- likespk %>%
+  dplyr::select(Age, SituationType, Like_Freq, DiscourseLike) %>%
+  dplyr::filter(Age <= 7.85,
+                SituationType == "informal",
+                Like_Freq > 2.542) %>%
+  dplyr::summarize(DiscourseLike = mean(DiscourseLike),
+          N = length(Age))
+youngformalhigh
+```
+
+# Extract tables
+
+Reload speaker data
+
+```{r likeac_4_23}
+# read in data
+speakers <- read.delim(here::here("datatables", "speakers.txt"), sep = "\t", header=TRUE, quote = "", skipNul = T) %>%
+  dplyr::mutate(DiscourseLike_Raw = DiscourseLike,
+                DiscourseLike = round(DiscourseLike/WordCount*1000, 3),
+                Attention_Raw = Attention,
+                Attention = round(Attention/WordCount*1000, 3),
+                Repair_Raw = Repair,
+                Repair = round(Repair/WordCount, 3),
+                Cognitive_Raw = Cognitive,
+                Cognitive = round(Cognitive/WordCount*1000, 3),
+                Specification_Raw = Specification,
+                Specification = round(Specification/WordCount*1000, 3),
+                Child = str_remove_all(File, ".*/"),
+                Child = str_sub(Child, 1, 3)) %>%
+  dplyr::filter(Cohort != "11-12",
+                Locutor != "Other",
+                Locutor != "Peer") %>%
+  dplyr::select(-Cohort, -Attention_Raw, -Repair_Raw, -Cognitive_Raw, -Specification_Raw, 
+                -AgeCategory) %>%
+  dplyr::rename(Speaker = Locutor) %>%
+  dplyr::mutate(Child = factor(Child),
+                Gender = factor(Gender),
+                Speaker = factor(Speaker),
+                SituationType = factor(SituationType),
+                Situation = factor(Situation))
+# inspect data
+head(speakers)
+```
+
+
+```{r likeac_4_21a}
+Table1a <- speakers %>%
+  dplyr::select(File, Speaker, SituationType, Age, 
+                WordCount, DiscourseLike_Raw) %>%
+  dplyr::filter(Speaker == "Child") %>%
+  dplyr::mutate(SpeakerID = str_replace_all(File, ".*/", ""),
+                SpeakerID = substr(SpeakerID, 1, 3),
+                SpeakerID = paste0(SpeakerID, Speaker),
+                SpeakerID = factor(SpeakerID),
+                Cohort = dplyr::case_when(Age < 5 ~ "3-4",
+                                          Age < 7 ~ "5-6",
+                                          Age < 9 ~ "7-8",
+                                          Age < 11 ~ "9-10",
+                                          Age < 13 ~ "11-12")) %>%
+  dplyr::select(-File, -Age) %>%
+  dplyr::group_by(Speaker, SituationType, Cohort, SpeakerID) %>%
+  dplyr::summarise(Words = sum(WordCount),
+                   Like = sum(DiscourseLike_Raw),
+                   Speakers = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(Speaker, SituationType, Cohort) %>%
+  dplyr::summarise(Words = sum(Words),
+                   Like = sum(Like),
+                   Speakers = n()) %>%
+  dplyr::mutate(Frequency = round(Like/Words*1000, 2)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Speaker = factor(Speaker),
+                SituationType = factor(SituationType),
+                Cohort = factor(Cohort)) %>%
+  dplyr::arrange(Speaker, Cohort, SituationType)
+# create total
+Total <-c("Total",
+          "",
+          "",
+          sum(Table1a$Words),
+          sum(Table1a$Like),
+          "",
+          round(sum(Table1a$Like)/sum(Table1a$Words)*1000, 2))
+Table1a <- rbind(Table1a, Total)
+# save data to disc
+write.table(Table1a, file = here::here("tables", "Table1a.txt"), sep = "\t",
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table1a
+```
+
+
+```{r likeac_4_21b}
+Table1b <- speakers %>%
+  dplyr::select(File, Speaker, SituationType, Age, 
+                WordCount, DiscourseLike_Raw) %>%
+  dplyr::filter(Speaker != "Child") %>%
+  dplyr::mutate(SpeakerID = str_replace_all(File, ".*/", ""),
+                SpeakerID = substr(SpeakerID, 1, 3),
+                SpeakerID = paste0(SpeakerID, Speaker),
+                SpeakerID = factor(SpeakerID),
+                Cohort = dplyr::case_when(Age < 5 ~ "3-4",
+                                          Age < 7 ~ "5-6",
+                                          Age < 9 ~ "7-8",
+                                          Age < 11 ~ "9-10",
+                                          Age < 13 ~ "11-12")) %>%
+  dplyr::select(-File, -Age) %>%
+  dplyr::group_by(Speaker, SituationType, Cohort, SpeakerID) %>%
+  dplyr::summarise(Words = sum(WordCount),
+                   Like = sum(DiscourseLike_Raw),
+                   Speakers = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(Speaker, SituationType, Cohort) %>%
+  dplyr::summarise(Words = sum(Words),
+                   Like = sum(Like),
+                   Speakers = n()) %>%
+  dplyr::mutate(Frequency = round(Like/Words*1000, 2)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Speaker = factor(Speaker),
+                SituationType = factor(SituationType),
+                Cohort = factor(Cohort)) %>%
+  dplyr::arrange(Speaker, Cohort, SituationType)
+# create total
+Total <-c("Total",
+          "",
+          "",
+          sum(Table1b$Words),
+          sum(Table1b$Like),
+          "",
+          round(sum(Table1b$Like)/sum(Table1b$Words)*1000, 2))
+Table1b <- rbind(Table1b, Total)
+# save data to disc
+write.table(Table1a, file = here::here("tables", "Table1b.txt"), sep = "\t",
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table1b
+```
+
+```{r likeac_4_21b}
+Table1 <- rbind(Table1a, Table1b)
+# save data to disc
+write.table(Table1, file = here::here("tables", "Table1.txt"), sep = "\t",
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table1
+```
+
+```{r likeac_4_25}
+visits <- str_remove_all(speakers$File, "/.*")
+visits <- str_remove_all(visits, "[A-Z]{1,}")
+table(visits)
+```
+
+```{r likeac_4_27}
+gender <- speakers %>%
+  dplyr::select(Child, Speaker, Gender) %>%
+  dplyr::filter(Speaker == "Child") %>%
+  dplyr::group_by(Child) %>%
+  dplyr::summarise(Gender = unique(Gender))
+table(gender$Gender)
+```
+
+```{r likeac_4_29}
+Table3 <- data %>%
+    dplyr::select(Child, SituationType, Age, 
+                Function) %>%
+  dplyr::mutate(DiscourseLike = 1,
+                Id = 1:nrow(data),
+                Cohort = dplyr::case_when(Age < 5 ~ "3-4",
+                                          Age < 7 ~ "5-6",
+                                          Age < 9 ~ "7-8",
+                                          Age < 11 ~ "9-10",
+                                          Age < 13 ~ "11-12")) %>%
+  tidyr::spread(Function, DiscourseLike) %>%
+  dplyr::mutate(Attention = tidyr::replace_na(as.numeric(Attention), 0),
+                Cognitive = tidyr::replace_na(as.numeric(Cognitive), 0),
+                Repair = tidyr::replace_na(as.numeric(Repair), 0),
+                Specification = tidyr::replace_na(as.numeric(Specification), 0)) %>%
+  dplyr::group_by(Cohort, SituationType) %>%
+  dplyr::summarise(Children = length(names(table(Child)[which(table(Child) > 0)])),
+                   Attention = sum(Attention),
+                   Cognitive = sum(Cognitive),
+                   Repair = sum(Repair),
+                   Specification = sum(Specification)) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(All = Attention+Cognitive+Repair+Specification,
+                Attention_p = round(Attention/All*100, 1),
+                Cognitive_p = round(Cognitive/All*100, 1),
+                Repair_p = round(Repair/All*100, 1),
+                Specification_p = round(Specification/All*100, 1)) %>%
+  dplyr::mutate(Attention = paste0(Attention, " (", Attention_p, ")"),
+                Cognitive = paste0(Cognitive, " (", Cognitive_p, ")"),
+                Repair = paste0(Repair, " (", Repair_p, ")"),
+                Specification = paste0(Specification, " (", Specification_p, ")")) %>%
+  dplyr::select(-All, -Attention_p, -Cognitive_p, -Repair_p, -Specification_p)
+# save data to disc
+write.table(Table3, file = here::here("tables", "Table3.txt"), sep = "\t",
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table3
+```
+
+
+## Extract session information
+
+```{r}
+sessionInfo()
+```
+
+***
+
+We have reached the end of Part 4 of the analysis.
+
+***
+
+
+

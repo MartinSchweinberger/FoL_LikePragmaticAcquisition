@@ -1,0 +1,735 @@
+---
+title: "On the L1-acquisition of discourse like - Part 2"
+author: "Anonymous"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  bookdown::html_document2: default
+bibliography: bibliography.bib
+link-citations: yes
+---
+
+This document shows an analysis that was performed with the aim of investigating the acquiasition of discourse *like* in American English based on data from the *Child Language Data Exchange System* (CHILDES). The following represents part 2 of this analysis.
+
+# Prepare session 
+
+* cleaning workspace
+* loading packages
+* setting options
+* defining paths
+
+```{r likeac_2_01}
+# load packages
+library(tidyverse)
+library(plyr)
+library(reshape)
+library(here)
+```
+
+We now read in the data and combine the by-instance data with the bio-demographic information.
+
+```{r likeac_2_02}
+# read in data
+bio <- base::readRDS(here::here("data", "HSDDLbiodemographicsbiowc.rda"))
+dmlike <- base::readRDS(here::here("data", "dmlike_all_coded.rda"))
+# remove na
+dmlike <- dmlike %>%
+  na.omit() %>%
+  dplyr::filter(DiscourseLike == 1)  %>%
+  dplyr::select(-Interlocutor)
+# create formality column
+informal <- c("Toy play", "Meal time", "Elicited report")
+rmspeakers <- c("Peer", "Other")
+bio <- bio %>%
+  dplyr::rename(Situation = SituationType) %>%
+  dplyr::mutate(SituationType = dplyr::case_when(Situation %in% informal ~ "informal", 
+                                                 TRUE ~ "formal")) %>%
+  # repair missing gender information
+  dplyr::mutate(Gender = dplyr::case_when(File == "HV1/MT/trumt1" & Speaker == "CHI" ~ "male", 
+                                          File == "HV1/ER/bober1" & Speaker == "CHI" ~ "male",
+                                          File == "HV2/BR/todbr2" & Speaker == "CHI" ~ "male", 
+                                          File == "HV2/TP/castp2" & Speaker == "CHI" ~ "male", 
+                                          File == "HV1/MT/brtmt1" & Speaker == "CHI" ~ "female", 
+                                          File == "HV2/BR/jesbr2" & Speaker == "CHI" ~ "female", 
+                                          TRUE ~ Gender)) %>%
+  # create age columns
+  dplyr::mutate(Cohort = dplyr::case_when(AgeCategory == 3 ~ "3-4",
+                                          AgeCategory == 4 ~ "3-4",
+                                          AgeCategory == 5 ~ "5-6",
+                                          AgeCategory == 6 ~ "5-6",
+                                          AgeCategory == 7 ~ "7-8",
+                                          AgeCategory == 8 ~ "7-8",
+                                          AgeCategory == 9 ~ "9-10",
+                                          AgeCategory == 10 ~ "9-10",
+                                          AgeCategory == 11 ~ "11-12",
+                                          AgeCategory == 12 ~ "11-12",
+                                          TRUE ~ as.character(AgeCategory)))
+# combine data like data with bio-demographic data
+like <- dplyr::left_join(dmlike, bio, by = c("File", "Speaker"))
+# inspect data
+head(like)
+```
+
+In addition, we add the like data to the bio-demographic data.
+
+```{r likeac_2_03}
+# condense dmlike
+sumlike <- dmlike %>%
+  dplyr::select(File, Speaker, DiscourseLike, Attention,
+                Repair, Cognitive, Specification) %>%
+  dplyr::group_by(File, Speaker) %>%
+  dplyr::summarise(DiscourseLike = sum(DiscourseLike), 
+                   Attention = sum(Attention),
+                   Repair = sum(Repair), 
+                   Cognitive = sum(Cognitive), 
+                   Specification = sum(Specification))
+speakers <- dplyr::left_join(bio, sumlike, by = c("File", "Speaker")) %>%
+  dplyr::mutate(DiscourseLike = DiscourseLike %>% replace_na(0),
+                Attention = Attention %>% replace_na(0),
+                Repair = Repair %>% replace_na(0),
+                Cognitive = Cognitive %>% replace_na(0),
+                Specification = Specification %>% replace_na(0)) %>%
+  # repair gender
+  dplyr::mutate(Child = str_remove_all(File, ".*/"),
+                Child = str_sub(Child, 1, 3)) %>%
+  dplyr::mutate(Gender = case_when(Child == "ali" & Speaker == "CHI" ~ "female",
+                                   Child == "gil" & Speaker == "CHI" ~ "male",
+                                   Child == "zan" & Speaker == "CHI" ~ "male",
+                                   TRUE ~ Gender)) %>%
+  dplyr::select(-Child)
+# inspect data
+head(speakers)
+```
+
+```{r testing}
+test01 <- speakers %>%
+  dplyr::select(File, Speaker, DiscourseLike) %>%
+  dplyr::group_by(Speaker) %>%
+  dplyr::summarise(DiscourseLike = sum(DiscourseLike)) %>%
+  dplyr::filter(Speaker == "CHI" | Speaker == "MOT" | Speaker == "FAT")
+test01
+```
+
+
+
+
+We will now use the data sets produced above to create visualizations
+
+```{r likeac_2_04}
+pd1 <- speakers %>%
+  dplyr::select(WordCount, Locutor, Situation, AgeCategory) %>%
+  dplyr::rename(Speaker = Locutor, Age = AgeCategory) %>%
+  dplyr::filter(Speaker == "Child") %>%
+  dplyr::group_by(Situation, Age) %>%
+  dplyr::summarise(Words = sum(WordCount)) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(Situation) %>%
+  dplyr::mutate(Percent = round(Words/sum(Words)*100, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Age = factor(Age),
+                Situation = factor(Situation))
+# inspect data
+pd1
+```
+
+```{r likeac_2_05}
+ggplot(pd1, aes(Age, Words)) + 
+  facet_wrap(pd1$Situation, nrow = 4) + 
+  geom_bar(stat="identity") + #, position = position_dodge()) +
+  scale_fill_manual(values=c("gray20")) + 
+  geom_text(aes(label=paste(round(Words/1000,1), "\n(", round(Percent, 1), ")", 
+                            sep = "")), 
+            color="black", y = pd1$Words+10000, size=2.5) +
+  theme_set(theme_bw(base_size = 12)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age of Child",y = "Words (N)") +
+  coord_cartesian(ylim = c(0, 50000)) +
+  scale_y_continuous(breaks=seq(0, 60000, 10000))
+ggsave(file = here::here("images", "Fig8.png"),
+         width = 15,  height = 20, units = c("cm"),  dpi = 320)
+```
+
+
+
+```{r likeac_2_07a}
+pd3 <- speakers %>%
+  dplyr::select(WordCount, Locutor, SituationType, Cohort) %>%
+  dplyr::filter(Cohort != "11-12") %>%
+  dplyr::rename(Speaker = Locutor, Age = Cohort, Situation = SituationType) %>%
+  dplyr::group_by(Situation, Speaker, Age) %>%
+  dplyr::summarise(Words = sum(WordCount)) %>%
+    dplyr::ungroup() %>%
+    dplyr::group_by(Situation, Age) %>%
+  dplyr::mutate(Percent = round(Words/sum(Words)*100, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Age = factor(Age),
+                Situation = factor(Situation))
+# inspect data
+pd3
+```
+
+```{r likeac_2_07b}
+ggplot(pd3, aes(Age, Words, fill = Speaker)) + 
+  facet_wrap(pd3$Situation, nrow = 2) + 
+  geom_bar(stat="identity", position = position_dodge()) +
+  scale_fill_manual(values=c("gray20", "gray40", "gray60", "gray80")) + 
+  geom_text(aes(label=Percent), color="black", position = position_dodge(.9), 
+                vjust=-1.2, size=3) +
+  theme_set(theme_bw(base_size = 12)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age",y = "Words (N)") +
+  coord_cartesian(ylim = c(0, 300000)) +
+  scale_y_continuous(breaks=seq(0, 300000, 50000))
+ggsave(file = here::here("images", "WordsCohortSituationType.png"),
+         width = 25,  height = 10, units = c("cm"),  dpi = 320)
+```
+
+We now remove speakers older than 10 and speakers other than children and primary caregiver from the sepakers-data set.
+
+```{r likeac_2_08}
+Table1 <- speakers %>%
+  dplyr::select(Locutor, SituationType, Cohort, WordCount, DiscourseLike) %>%
+  dplyr::group_by(Locutor, SituationType, Cohort) %>%
+  dplyr::summarise(Words = sum(WordCount),
+                   Like = sum(DiscourseLike)) %>%
+  dplyr::mutate(Frequency = round(Like/Words*1000, 2)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Locutor = factor(Locutor),
+                SituationType = factor(SituationType),
+                Cohort = factor(Cohort)) 
+write.table(Table1, file = here::here("datatables", "Table1.txt"), 
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table1
+```
+
+```{r likeac_2_09}
+nrow(speakers)
+speakers <- speakers %>%
+  dplyr::select(-OriginalAge, -SocioEconomicStatus) %>%
+  dplyr::filter(Cohort != "11-12",
+                Locutor != "Other",
+                Locutor != "Peer") %>%
+  na.omit()# inspect data
+nrow(speakers)
+```
+
+
+
+```{r likeac_2_09}
+speakers <- speakers %>%
+  dplyr::ungroup() %>%
+  # collapsing MOT and FAT
+  dplyr::select(-Speaker, -DateOfBirth, -DateOfRecording, -Participants, -Visit) %>%
+  dplyr::mutate(Gender = ifelse(Locutor == "Child", Gender, "unknown")) %>%
+  dplyr::group_by(File, Locutor) %>%
+  dplyr::summarise(Age = names(table(Age)),
+                   SituationType = names(table(SituationType)),
+                   Situation = names(table(Situation)),
+                   Cohort = names(table(Cohort)),
+                   AgeCategory = names(table(AgeCategory)),
+                   Gender = names(table(Gender)),
+                   DiscourseLike = sum(DiscourseLike),
+                   Attention = sum(Attention), 
+                   Repair = sum(Repair), 
+                   Cognitive = sum(Cognitive), 
+                   Specification = sum(Specification),
+                   WordCount = sum(WordCount)) %>%
+  dplyr::mutate(Cohort = factor(Cohort),
+                Locutor = factor(Locutor),
+                SituationType = factor(SituationType),
+                Age = as.numeric(Age),
+                AgeCategory = factor(AgeCategory),
+                Situation = factor(Situation),
+                Gender = factor(Gender))
+# save
+base::saveRDS(speakers, file = here::here("data", "speakers.rda"))
+# inspect data
+nrow(speakers);head(speakers)
+``` 
+
+We exclude the same data from the like-data set.
+
+```{r likeac_2_10}
+nrow(like)
+like <- like %>%
+  dplyr::select(-OriginalAge, -SocioEconomicStatus) %>%
+  dplyr::filter(Cohort != "11-12",
+                Locutor != "Other",
+                Locutor != "Peer") %>%
+  na.omit()
+nrow(like)
+``` 
+
+```{r testing}
+test02 <- speakers %>%
+  dplyr::select(Locutor, DiscourseLike) %>%
+  dplyr::group_by(Locutor) %>%
+  dplyr::summarise(DiscourseLike = sum(DiscourseLike))
+test02
+```
+
+
+```{r testing}
+test03 <- like %>%
+  dplyr::select(Locutor, DiscourseLike) %>%
+  dplyr::group_by(Locutor) %>%
+  dplyr::summarise(DiscourseLike = sum(DiscourseLike))
+test03
+```
+
+
+```{r likeac_2_11a}
+pd4 <- speakers %>%
+  dplyr::select(WordCount, Locutor, SituationType, Cohort) %>%
+  dplyr::filter(Cohort != "11-12") %>%
+  dplyr::rename(Speaker = Locutor, Age = Cohort, Situation = SituationType) %>%
+  dplyr::group_by(Situation, Speaker, Age) %>%
+  dplyr::summarise(Words = sum(WordCount)) %>%
+    dplyr::ungroup() %>%
+    dplyr::group_by(Situation, Age) %>%
+  dplyr::mutate(Percent = round(Words/sum(Words)*100, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Age = factor(Age),
+                Situation = factor(Situation))
+# inspect data
+pd4
+```
+
+
+
+```{r likeac_2_11b}
+ggplot(pd4, aes(Age, Words, fill = Speaker)) + 
+  facet_wrap(pd4$Situation, nrow = 2) + 
+  geom_bar(stat="identity", position = position_dodge()) +
+  scale_fill_manual(values=c("gray20", "gray60")) + 
+  geom_text(aes(label=paste(round(Words/1000, 1), "\n(", round(Percent, 1), "%)", sep = "")),
+            color="black", position = position_dodge(.9), vjust=-.5, size=3) +
+  theme_set(theme_bw(base_size = 12)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age of Child",y = "Words (in 1,000s)") +
+  coord_cartesian(ylim = c(0, 400000)) +
+  scale_y_continuous(breaks=seq(0, 400000, 100000), labels = seq(0, 400, 100))
+ggsave(file = here::here("images", "Fig1.png"),
+         width = 15,  height = 10, units = c("cm"),  dpi = 320)
+```
+
+```{r likeac_2_12a}
+Table2 <- speakers %>%
+  dplyr::select(File, Locutor, SituationType, Cohort, 
+                WordCount, DiscourseLike) %>%
+  dplyr::mutate(SpeakerID = str_replace_all(File, ".*/", "")) %>%
+  dplyr::mutate(SpeakerID = substr(SpeakerID, 1, 3)) %>%
+  dplyr::mutate(SpeakerID = paste(SpeakerID, Locutor, sep = "")) %>%
+  dplyr::mutate(SpeakerID = factor(SpeakerID)) %>%
+  dplyr::select(-File) %>%
+  dplyr::group_by(Locutor, SituationType, Cohort, SpeakerID) %>%
+  dplyr::summarise(Words = sum(WordCount),
+                   Like = sum(DiscourseLike),
+                   Speakers = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(Locutor, SituationType, Cohort) %>%
+  dplyr::summarise(Words = sum(Words),
+                   Like = sum(Like),
+                   Speakers = n()) %>%
+  dplyr::mutate(Frequency = round(Like/Words*1000, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Locutor = factor(Locutor),
+                SituationType = factor(SituationType),
+                Cohort = factor(Cohort)) 
+write.table(Table2, file = here::here("datatables", "Table2.txt"), 
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table2
+```
+
+```{r likeac_2_12b}
+Table3 <- speakers %>%
+  dplyr::select(File,  Locutor, Gender, SituationType, Cohort, 
+                WordCount, DiscourseLike) %>%
+  dplyr::mutate(SpeakerID = str_replace_all(File, ".*/", "")) %>%
+  dplyr::mutate(SpeakerID = substr(SpeakerID, 1, 3)) %>%
+  dplyr::mutate(SpeakerID = paste(SpeakerID, Locutor, sep = "")) %>%
+  dplyr::mutate(SpeakerID = factor(SpeakerID)) %>%
+  dplyr::select(-File) %>%
+  dplyr::group_by(Cohort, Locutor, SituationType, Gender, SpeakerID) %>%
+  dplyr::summarise(Words = sum(WordCount),
+                   Like = sum(DiscourseLike),
+                   Speakers = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(Cohort, Locutor, SituationType, Gender) %>%
+  dplyr::summarise(Words = sum(Words),
+                   Like = sum(Like),
+                   Speakers = n()) %>%
+  dplyr::mutate(Frequency = round(Like/Words*1000, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Locutor = factor(Locutor),
+                SituationType = factor(SituationType),
+                Cohort = factor(Cohort)) 
+write.table(Table3, file = here::here("datatables", "Table3.txt"), 
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table3
+```
+
+```{r likeac_2_12c}
+Table4 <- speakers %>%
+  dplyr::select(File, Locutor, Gender, SituationType, Cohort, 
+                WordCount, DiscourseLike, Attention, Repair,
+                Cognitive, Specification) %>%
+  dplyr::mutate(SpeakerID = str_replace_all(File, ".*/", "")) %>%
+  dplyr::mutate(SpeakerID = substr(SpeakerID, 1, 3)) %>%
+  dplyr::mutate(SpeakerID = paste0(SpeakerID, Locutor)) %>%
+  dplyr::mutate(SpeakerID = factor(SpeakerID)) %>%
+  dplyr::select(-File) %>%
+  dplyr::group_by(Cohort, Locutor, SituationType, Gender, SpeakerID) %>%
+  dplyr::summarise(Words = sum(WordCount),
+                   Like = sum(DiscourseLike),
+                   Attention = sum(Attention), 
+                   Repair = sum(Repair),
+                   Cognitive = sum(Cognitive),
+                   Specification = sum(Specification),
+                   Speakers = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(Cohort, Locutor, SituationType, Gender) %>%
+  dplyr::summarise(Words = sum(Words),
+                   Like = sum(Like),
+                   Attention = sum(Attention), 
+                   Repair = sum(Repair),
+                   Cognitive = sum(Cognitive),
+                   Specification = sum(Specification),
+                   Speakers = n()) %>%
+  dplyr::mutate(Freq_Like = round(Like/Words*1000, 2)) %>%
+  dplyr::mutate(Pcnt_Att = round(Attention/Like*100, 1)) %>%
+  dplyr::mutate(Pcnt_Rep = round(Repair/Like*100, 1)) %>%
+  dplyr::mutate(Pcnt_Cog = round(Cognitive/Like*100, 1)) %>%
+  dplyr::mutate(Pcnt_Spe = round(Specification/Like*100, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Like = paste(Like, " (", Freq_Like, ")", sep = "")) %>%
+  dplyr::mutate(Attention = paste(Attention, " (", Pcnt_Att, ")", 
+                                     sep = "")) %>%
+  dplyr::mutate(Repair = paste(Repair, " (", Pcnt_Rep, ")", sep = "")) %>%
+  dplyr::mutate(Cognitive = paste(Cognitive, " (", Pcnt_Cog, ")",
+                                          sep = "")) %>%
+  dplyr::mutate(Specification = paste(Specification, " (", Pcnt_Spe, ")", 
+                                      sep = "")) %>% 
+  dplyr::select(-Freq_Like, -Pcnt_Att, -Pcnt_Rep, -Pcnt_Cog, -Pcnt_Spe) %>%
+  dplyr::mutate(Locutor = factor(Locutor),
+                SituationType = factor(SituationType),
+                Cohort = factor(Cohort)) 
+write.table(Table4, file = here::here("datatables", "Table4.txt"), 
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect data
+Table4
+```
+
+```{r likeac_2_14a}
+pd6 <- speakers %>%
+  dplyr::select(Cohort, DiscourseLike, Locutor, SituationType, WordCount) %>%
+  dplyr::group_by(Cohort, Locutor, SituationType) %>%
+  dplyr::mutate(Frequency = round(DiscourseLike/WordCount*1000, 2))
+# inspect data
+pd6
+```
+
+```{r likeac_2_14b}
+ggplot(pd6, aes(Cohort, Frequency, colour = SituationType)) +
+  stat_summary(fun.y = mean, geom = "point") +
+  stat_summary(fun.y = mean, geom = "point", aes(group = SituationType)) +
+  stat_summary(fun.data = mean_cl_boot, geom = "errorbar", width = 0.2) +
+  facet_wrap(~ Locutor, nrow = 1) +
+  coord_cartesian(ylim = c(0, 5)) +
+  theme_set(theme_bw(base_size = 15)) +
+  labs(x = "Age of Child", y = "Frequency \n(per 1,000 words)", colour = "SituationType") +
+  theme(legend.position="top",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.background = element_blank()) +
+  scale_color_manual(values = c("gray30", "gray80"))
+ggsave(file = here::here("images", "LikeAgeSituationSpeaker_errorbars.png"), 
+         width = 20,  height = 10, units = c("cm"), dpi = 320)
+```
+
+
+
+## Extract examples
+
+```{r likeac_2_15}
+set.seed(2020012201)
+chi <- like %>%
+  dplyr::filter(Locutor == "Child")
+examples <- like %>%
+  dplyr::select(File, Example_long, Locutor, Function) %>%
+  dplyr::filter(Locutor == "Child") %>%
+  dplyr::sample_n(nrow(chi)) %>%
+  dplyr::arrange(Function) %>%
+  dplyr::select(-Locutor)
+# save examples
+write.table(examples, file = here::here("datatables", "examples.txt"), 
+            row.names = FALSE, col.names = TRUE, quote = F)
+# inspect examples
+head(examples)
+```
+
+## Bar plot
+
+Functions by age, locutor, and situation type
+
+
+```{r likeac_2_18a}
+pd8 <- like %>%
+  dplyr::select(SituationType, Function, Locutor, Cohort, DiscourseLike) %>%
+  dplyr::mutate(DiscourseLike = rep(1, nrow(like))) %>%
+  dplyr::rename(Speaker = Locutor, Age = Cohort, Situation = SituationType) %>%
+  dplyr::group_by(Situation, Speaker, Age, Function) %>%
+  dplyr::summarise(Likes = sum(DiscourseLike)) %>%
+    dplyr::ungroup() %>%
+    dplyr::group_by(Situation, Speaker, Age) %>%
+  dplyr::mutate(Percent = round(Likes/sum(Likes)*100, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Function = ifelse(Function == "LexicalIndecision", "Cognitive", Function)) %>%
+  dplyr::mutate(Age = factor(Age),
+                Function = factor(Function),
+                Speaker = factor(Speaker),
+                Situation = factor(Situation))
+# inspect data
+pd8
+```
+
+```{r likeac_2_18b}
+ggplot(pd8, aes(Age, Percent, fill = Function)) + 
+  facet_grid(Speaker ~ Situation) + 
+  geom_bar(stat="identity", position = position_dodge()) +
+  scale_fill_manual(values=c("gray20", "gray40", "gray60", "gray80")) +
+  geom_text(aes(label=paste(round(Percent, 1), "\n(", Likes, ")", sep = "")),
+            color="black", position = position_dodge(.9), vjust=-.5, size=3) +
+  theme_set(theme_bw(base_size = 15)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age of Child",y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks=seq(0, 100, 20))
+ggsave(file = here::here("images", "LikeCohortSituationSpeaker_bar.png"), 
+         width = 25,  height = 15, units = c("cm"), dpi = 320)
+```
+
+```{r likeac_2_21a}
+Agelbs <- names(table(speakers$Cohort))
+pd9 <- like %>%
+  dplyr::select(SituationType, Function, Locutor, Cohort, DiscourseLike) %>%
+  dplyr::mutate(DiscourseLike = rep(1, nrow(like))) %>%
+  dplyr::mutate(Cohort = ifelse(Cohort == "3-4", 1, 
+                         ifelse(Cohort == "5-6", 2,
+                         ifelse(Cohort == "7-8", 3,
+                         ifelse(Cohort == "9-10", 4, Cohort))))) %>%
+  dplyr::rename(Speaker = Locutor, Age = Cohort, Situation = SituationType) %>%
+  dplyr::group_by(Situation, Speaker, Age, Function) %>%
+  dplyr::summarise(Likes = sum(DiscourseLike)) %>%
+    dplyr::ungroup() %>%
+    dplyr::group_by(Situation, Speaker, Age) %>%
+  dplyr::mutate(Percent = round(Likes/sum(Likes)*100, 1)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Age = as.numeric(Age),
+                Function = factor(Function),
+                Speaker = factor(Speaker),
+                Situation = factor(Situation))
+# inspect data
+pd9
+```
+
+
+
+```{r likeac_2_21b}
+ggplot(pd9, aes(Age, Percent, linetype = Function, color = Function)) + 
+  facet_grid(Speaker ~ Situation) + 
+  geom_line(size = 1) +
+    scale_linetype_manual(values=c("solid", "dashed", "dotdash", "dotted"), 
+                        name=c(""),
+                        breaks = c("Attention", "Cognitive", 
+                                   "Repair", "Specification"),
+                        labels = c("Attention","Cognitive", 
+                                   "Repair", "Specification")) +
+  scale_color_manual(values=c("gray20", "gray40", "gray60", "gray80"), 
+                        name=c(""),
+                        breaks = c("Attention", "Cognitive", 
+                                   "Repair", "Specification"),
+                        labels = c("Attention", "Cognitive", 
+                                   "Repair", "Specification")) +
+  theme_set(theme_bw(base_size = 15)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age of Child",y = "Percent") +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks=seq(0, 100, 20)) +
+    scale_x_continuous(name = "Age of Child",
+                     breaks = c(1, 2, 3, 4),
+                     labels=Agelbs)
+ggsave(file = here::here("images", "LikeFunctionCohortSituationSpeaker_line.png"), 
+         width = 25,  height = 15, units = c("cm"), dpi = 320)
+```
+
+```{r likeac_2_21c}
+pd10 <- speakers %>%
+  dplyr::select(SituationType, Attention, Repair, Cognitive,
+                Specification, Locutor, Cohort, WordCount) %>%
+  tidyr::gather(key = "Function", value = "Frequency", "Attention":"Specification") %>%
+  dplyr::rename(Speaker = Locutor, Age = Cohort, 
+                Situation = SituationType, Words = WordCount) %>%
+  dplyr::group_by(Situation, Speaker, Function, Age) %>%
+  dplyr::summarise(Likes = sum(Frequency),
+                   Words = sum(Words)) %>%
+  dplyr::mutate(RelativeFrequency = round(Likes/Words*1000, 2)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(Age = factor(Age),
+                Function = factor(Function),
+                Speaker = factor(Speaker),
+                Situation = factor(Situation))
+# inspect data
+pd10
+```
+
+```{r likeac_2_21d}
+ggplot(pd10, aes(Age, RelativeFrequency, fill = Function)) + 
+  facet_grid(Speaker ~ Situation) + 
+  geom_bar(stat="identity", position = position_dodge()) +
+  scale_fill_manual(values=c("gray20", "gray40", "gray60", "gray80")) +
+  geom_text(aes(label=paste(RelativeFrequency, "\n(", Likes, ")", sep = "")),
+            color="black", position = position_dodge(.9), vjust=-.5, size=3) +
+  theme_set(theme_bw(base_size = 15)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age of Child",y = "Frequency\n(per 1,000 words)") +
+  coord_cartesian(ylim = c(0, 3)) +
+  scale_y_continuous(breaks=seq(0, 3, 1))
+ggsave(file = here::here("images", "LikeRelFreqCohortSituationSpeaker_bar.png"), 
+         width = 30,  height = 15, units = c("cm"), dpi = 320)
+```
+
+
+```{r likeac_2_21e}
+pd11 <- pd10 %>%
+  dplyr::mutate(Age = ifelse(Age == "3-4", 1, 
+                      ifelse(Age == "5-6", 2,
+                      ifelse(Age == "7-8", 3,
+                      ifelse(Age == "9-10", 4, Age))))) %>%
+  dplyr::mutate(Age = as.numeric(Age))
+# inspect data
+head(pd11)
+```
+
+
+
+```{r likeac_2_21f}
+ggplot(pd11, aes(jitter(Age), RelativeFrequency, linetype = Function, color = Function)) + 
+  facet_grid(Speaker ~ Situation) + 
+  geom_line(size = 1) +
+    scale_linetype_manual(values=c("solid", "dashed", "dotdash", "dotted"), 
+                        name=c(""),
+                        breaks = c("Attention", "Cognitive", "Repair", "Specification"),
+                        labels = c("Attention", "Cognitive", "Repair", "Specification")) +
+  scale_color_manual(values=c("gray20", "gray40", "gray60", "gray80"), 
+                        name=c(""),
+                        breaks = c("Attention", "Cognitive", "Repair", "Specification"),
+                        labels = c("Attention", "Cognitive", "Repair", "Specification")) +
+  theme_set(theme_bw(base_size = 15)) +   
+  theme(legend.position="top", legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(x = "Age of Child",y = "Frequency\n(per 1,000 words)") +
+  coord_cartesian(ylim = c(0, 3)) +
+  scale_y_continuous(breaks=seq(0, 3, 1)) +
+  scale_x_continuous(name = "Age of Child",
+                     breaks = c(1, 2, 3, 4),
+                     labels=Agelbs) 
+ggsave(file = here::here("images", "LikeRelFreqFunctionCohortSituationSpeaker_line.png"), 
+         width = 25,  height = 15, units = c("cm"), dpi = 320)
+```
+
+Now, we create the data set for the regression analysis.
+
+```{r likeac_2_22a}
+# create speaker for joining table
+speaker_forjoining <- speakers %>%
+  dplyr::select(File, Locutor, WordCount, SituationType, 
+                DiscourseLike, Attention, Repair, Cognitive,
+                Specification) %>%
+  dplyr::filter(Locutor == "PrimaryCaregiver") %>%
+  dplyr::group_by(File, Locutor) %>%
+  dplyr::summarise(DiscourseLike = sum(DiscourseLike),
+                   WordCount = sum(WordCount),
+                   Attention = sum(Attention),
+                   Repair = sum(Repair),
+                   Cognitive = sum(Cognitive),
+                   Specification = sum(Specification)) %>%
+  dplyr::mutate(Like_Freq = round(DiscourseLike/WordCount*1000, 3),
+                Att_Freq = round(Attention/WordCount*1000, 3), 
+                Rep_Freq = round(Repair/WordCount*1000, 3),
+                Cog_Freq = round(Cognitive/WordCount*1000, 3),
+                Spe_Freq = round(Specification/WordCount*1000, 3)) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-Locutor, -DiscourseLike, -WordCount, -Attention, -Cognitive, -Repair, -Specification) %>%
+  as.data.frame()
+# create like for joining table
+like_forjoining <- like %>%
+  dplyr::select(File, Gender, Participants, Locutor, Visit, Age, 
+  SituationType, Function, DiscourseLike) %>%
+  dplyr::filter(Locutor == "Child") %>%
+  dplyr::select(-Locutor) %>%
+  as.data.frame()
+# combine data
+datalike <- dplyr::left_join(like_forjoining, speaker_forjoining, by = c("File")) %>%
+  dplyr::rename(Child = File) %>%
+  dplyr::mutate(Child = str_replace_all(Child, ".*/", "")) %>%
+  dplyr::mutate(Child = str_sub(Child, 1, 3)) %>%
+  # remove visit (collinear with Age)
+  dplyr::select(-Visit) %>%
+  # remove incomplete cases
+  tidyr::replace_na(list(Like_Freq = 0, Att_Freq = 0, Rep_Freq = 0, Cog_Freq = 0, Spe_Freq = 0)) %>%
+  na.omit()
+# save 
+base::saveRDS(datalike, file = here::here("data", "datadmlike.rda"))
+# inspect data
+head(datalike)
+```
+
+Check the percentage of children that have used discourse *like* in the data.
+
+```{r likeac_2_22b}
+likeusers <- speakers %>% 
+  dplyr::select(DiscourseLike, Locutor, File) %>%
+  dplyr::filter(Locutor == "Child") %>%
+  dplyr::select(-Locutor) %>%
+  dplyr::mutate(File = str_replace_all(File, ".*/", "")) %>%
+  dplyr::mutate(File = str_sub(File, 1, 3)) %>%
+  dplyr::group_by(File) %>%
+  dplyr::summarise(User = sum(DiscourseLike)) %>%
+  dplyr::mutate(User = ifelse(User >= 1, 1, User)) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(User) %>%
+  dplyr::summarise(LikeUser = n())
+PercentLikeUsers <- round(likeusers$LikeUser[2]/sum(likeusers$LikeUser)*100, 1)
+# inspect data
+PercentLikeUsers
+```
+
+## Extract session information
+
+```{r}
+sessionInfo()
+```
+
+
+***
+
+We have reached the end of Part 2 of the analysis.
+
+***
+

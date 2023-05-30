@@ -1,0 +1,842 @@
+---
+title: "On the L1-acquisition of discourse like - Part 1"
+author: "Anonymous"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  bookdown::html_document2: default
+bibliography: bibliography.bib
+link-citations: yes
+---
+
+# Introduction 
+
+This document shows an analysis that was performed with the aim of investigating the acquisition of discourse *like* in American English based on data from the *Child Language Data Exchange System* (CHILDES). The following represents part 1 of this analysis.
+
+# Session preparation
+
+* Install packages
+
+```{r install, eval = F, message=F, warning=F}
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("stringr")
+install.packages("here")
+```
+
+
+* Loading packages
+* Setting options
+* Defining paths
+
+```{r likeac_1_01}
+# load packages
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(here)
+# set options
+options(stringsAsFactors = F)
+options(scipen = 999)
+options(max.print=10000)
+# define image directory
+imageDirectory<-"images"
+# specify path to corpus
+corpus <- "D:\\Uni\\Korpora\\Original\\CHILDES\\Eng-NA-MOR\\HSLLD"
+```
+
+# Data processing
+
+```{r likeac_1_02}
+# list corpus files
+cha = list.files(path = corpus, pattern = ".cha$", all.files = T,
+  full.names = T, recursive = T, ignore.case = T, include.dirs = T)
+# create version of corpus fit for concordancing
+corpus <- sapply(cha, function(x) {
+  file <- gsub("D:\\Uni\\Korpora\\Original\\CHILDES\\Eng-NA-MOR\\HSLLD/", "", x, fixed = T)
+  file <- gsub(".cha", "", file, fixed = T)
+  x <- scan(x, what = "char", sep = "\t", quiet = T, quote = "", skipNul = T)
+  x <- gsub("\n", " ", x, fixed = T)
+  x <- gsub("\t", " ", x, fixed = T)
+  x <- str_trim(x, side = "both")
+  x <- gsub(" {2,}", " ", x)
+  orig <- paste(x, collapse = " ", sep = " ")
+  x <- strsplit(gsub("([%|*][a-z|A-Z]{2,4}[0-9]{0,1}:)", "~~~\\1", orig), "~~~")
+  txt <- sapply(x, function(y){
+    y <- str_replace_all(y, "%.*", "")
+  })
+  txt <- txt[2:length(txt)]
+  x <- paste(txt, collapse = " ")
+  x <- paste(file, x, collapse = " ")
+  x <- str_trim(x, side = "both")
+  x <- gsub(" {2,}", " ", x)
+  return(x)
+  })
+# inspect data
+str(corpus)
+```
+
+## Extraction of like
+
+Now, we extract all instances of <like> from the corpus.
+
+```{r likeac_1_03}
+# extract instances of LIKE
+extractdmlike <- function(corpus, pattern, context, all.pre = FALSE) {
+  require(stringr)
+  conc <- sapply(corpus, function(x) {
+      txt <- x
+      file <- str_replace_all(txt, " .*", "")
+      txt <- str_replace_all(txt, " {2,}" , " ")
+      txt <- str_trim(txt, side = "both")
+      idx <- str_locate_all(txt, pattern)
+      idx <- idx[[1]]
+      token.idx.start <- idx[,1]
+      token.idx.end <- idx[,2]
+      pre.idx.start <- idx[,1]-context
+      pre.idx.end <- idx[,1]-1
+      pre.idx.all.start <- rep(1, nrow(idx))
+      pre.idx.all.end <- idx[,1]-1
+      post.idx.start <- idx[,2]+1
+      post.idx.end <- idx[,2]+context
+      file <- as.vector(unlist(c(rep(file, length(token.idx.start)))))
+      conc.df <-  data.frame(pre.idx.start, pre.idx.end, token.idx.start, token.idx.end, post.idx.start, post.idx.end, pre.idx.all.start, file)
+      concr1 <- function(conc.df, txt){
+      conc <- apply(conc.df, 1, function(x){
+        pre <- substr(txt, x[1], x[2])
+        token <- substr(txt, x[3], x[4])
+        post <- substr(txt, x[5], x[6])
+        precl <- substr(txt, x[1], x[2])
+        postcl <- substr(txt, x[5], x[6])
+        file <- x[8]
+        unlist(c(pre, token, post, file, precl, postcl))
+        } ) }
+      concr2 <- function(conc.df, txt){
+      conc <- apply(conc.df, 1, function(x){
+        pre <- substr(txt, x[1], x[2])
+        token <- substr(txt, x[3], x[4])
+        post <- substr(txt, x[5], x[6])
+        precl <- substr(txt, x[1], x[2])
+        postcl <- substr(txt, x[5], x[6])
+        all.pre <- substr(txt, x[7], x[2])
+        file <- x[8]
+        unlist(c(pre, token, post, file, precl, postcl, all.pre))
+       } ) }
+      ifelse(all.pre == F, conc <- concr1(conc.df, txt), conc <- concr2(conc.df, txt))
+      conc <- as.data.frame(t(conc))
+      return(conc)
+      }  )
+  df <- do.call("rbind", conc)
+  ifelse(ncol(df) == 6, colnames(df) <- c("pre", "token", "post", "file", "precl", "postcl"), colnames(df) <- c("pre", "token", "post", "file", "precl", "postcl", "all.pre"))
+  rownames(df) <- 1:nrow(df)
+  return(df)
+}
+corpus = corpus
+dmlike <- extractdmlike(corpus, pattern = "[A-Z]{0,1}[a-z]{0,}[L|l]ike[a-z]{0,}", context = 30, all.pre = T)
+dmlike$id <- 1:nrow(dmlike)
+# save original data
+dmlikeorig1 <- dmlike
+# inspect data
+head(dmlike)
+```
+
+## Data cleaning
+
+```{r likeac_1_04}
+# exclude all elements which are not "[L|l]ike"
+likes <- c("Like", "like")
+nrow(dmlike)
+dmlike <- dmlike %>%
+  dplyr::filter(token %in% likes)
+# inspect data
+nrow(dmlike)
+```
+
+More data cleaning
+
+```{r likeac_1_05}
+# extract speaker
+dmlike <- dmlike %>%
+  dplyr::mutate(all.pre = str_replace_all(all.pre, ".*\\*", "*")) %>%
+  dplyr::mutate(all.pre = str_replace_all(all.pre, ":.*", ""))
+# clean pre and post
+dmlike$precl <- as.vector(unlist(sapply(dmlike$precl, function(x){
+  x <- gsub(")", "", x, fixed = T)
+  x <- gsub("(", "", x, fixed = T)
+  x <- gsub("[", "", x, fixed = T)
+  x <- gsub("]", "", x, fixed = T)
+  x <- gsub("/", "", x, fixed = T)
+  x <- gsub("+", "", x, fixed = T)
+  x <- gsub(".", "", x, fixed = T)
+  x <- gsub("<", "", x, fixed = T)
+  x <- gsub(">", "", x, fixed = T)
+  x <- gsub("?", "", x, fixed = T)
+  x <- gsub("!", "", x, fixed = T)
+  x <- gsub("&", "", x, fixed = T)
+  x <- gsub(":", "", x, fixed = T)
+  })))
+dmlike$postcl <- as.vector(unlist(sapply(dmlike$postcl, function(x){
+  x <- gsub(")", "", x, fixed = T)
+  x <- gsub("(", "", x, fixed = T)
+  x <- gsub("[", "", x, fixed = T)
+  x <- gsub("]", "", x, fixed = T)
+  x <- gsub("/", "", x, fixed = T)
+  x <- gsub("+", "", x, fixed = T)
+  x <- gsub(".", "", x, fixed = T)
+  x <- gsub("<", "", x, fixed = T)
+  x <- gsub(">", "", x, fixed = T)
+  x <- gsub("?", "", x, fixed = T)
+  x <- gsub("!", "", x, fixed = T)
+  x <- gsub("&", "", x, fixed = T)
+  x <- gsub(":", "", x, fixed = T)
+  })))
+# add fulltext column to dmlike
+dmlike$full <- as.vector(unlist(apply(dmlike, 1, function(x){
+  x <- paste(x[1], "<<", x[2], ">>", x[3], collapse = " ")
+  x <- gsub(" {2,}", " ", x)
+  x <- str_trim(x, side = "both")
+  })))
+dmlike$remove <- as.vector(unlist(apply(dmlike, 1, function(x){
+  x <- paste(x[5], "<<", x[2], ">>", x[6], collapse = " ")
+  x <- gsub(" {2,}", " ", x)
+  x <- str_trim(x, side = "both")
+  })))
+dmlike$remove <- as.vector(unlist(sapply(dmlike$remove, function(x){
+  # liked/likes/likely
+  x <- str_replace_all(x, ".*<< like >> (d|s|ly){1,1} .*", "rmv") 
+  # alike/unlike
+  x <- str_replace_all(x, ".* (a|un){1,1} <<.*", "rmv") 
+  x <- str_replace_all(x, " {2,}" , " ")
+  x <- str_trim(x, side = "both")
+  # something like
+  x <- str_replace_all(x, ".* something <<.*", "rmv") 
+  #thing/stuff like that
+  x <- str_replace_all(x, ".*(thing|stuff){1,1} << like >> th.*", "rmv") 
+  # like to
+  x <- str_replace_all(x, ".*>> to .*", "rmv") 
+  # don't like
+  x <- str_replace_all(x, ".*(n't|ould){1,1} (you ){0,1}<<.*", "rmv") 
+  # sound/look/feel/felt/seem like
+  x <- str_replace_all(x, ".*(taste|smell|sound|look|feel|seem|felt|act){1,1}(s|ed|ing){0,1}(d){0,1} (just ){0,1}<<.*", "rmv") 
+  # it's like
+  x <- str_replace_all(x, ".* it {0,1}'s <<.*", "rmv") 
+  # it's not like
+  x <- str_replace_all(x, ".* it {0,1}'s not << like >> .*", "rmv") 
+  # did/do you like that?
+  x <- str_replace_all(x, ".*(did|do){1,1} (you ){0,1}<< like >> (it|that|this|the){0,1}.*", "rmv") 
+  # like that/this?
+  x <- str_replace_all(x, ".*>> (that|this){1,1}.*", "rmv") 
+  # like what?
+  x <- str_replace_all(x, ".*>> what.*", "rmv") 
+  # would you like
+  x <- str_replace_all(x, ".*ould(n't){0,1} you << like >> .*", "rmv") 
+  # I/you like V-ing
+  x <- str_replace_all(x, ".* (I|you){1,1} << like >> (me|you){1,1}.*", "rmv") 
+  # I/we/he/you'd like you to
+  x <- str_replace_all(x, ".* (I|we|he){1,1}'d << like >> you to .*", "rmv") 
+  })))
+# inspect data
+nrow(dmlike)
+```
+
+## Automatic removal of non-DM like
+
+Instances identified in code block above
+
+```{r likeac_1_06}
+# save original data
+dmlikeorig2 <- dmlike
+# remove rmv
+removed <- dmlike[dmlike$remove == "rmv",]
+dmlike <- dmlike[dmlike$remove != "rmv",]
+# inspect data
+nrow(dmlike)
+```
+
+Reorganize data
+
+```{r likeac_1_07}
+# reorganize data frames
+# dmlike
+dmlike <- data.frame(dmlike$id, dmlike$file, dmlike$all.pre, dmlike$pre, dmlike$token, dmlike$post, dmlike$full, dmlike$remove)
+# removed
+removed <- data.frame(removed$id, removed$file, removed$all.pre, removed$pre, removed$token, removed$post, removed$full, removed$remove)
+# adapt column names
+colnames(removed) <- c("id", "file", "spk", "pre", "token", "post", "full", "fullclean")
+colnames(dmlike) <- c("id", "file", "spk", "pre", "token", "post", "full", "fullclean")
+# remove * from spk
+dmlike$spk <- gsub("*", "", dmlike$spk, fixed = T)
+# inspect removed
+#removed$full[1:28]
+# inspect data
+dmlike[1:28,8]
+```
+
+## Extraction of DM *like* with more context
+
+```{r likeac_1_08}
+# extract like with more context
+dmlikelong <- extractdmlike(corpus, pattern = "[A-Z]{0,1}[a-z]{0,}[L|l]ike[a-z]{0,}", context = 250, all.pre = T)
+# exclude all elements which are not "[L|l]ike"
+token <- c("Like", "like")
+dmlikelong$remove <- as.vector(unlist(sapply(dmlikelong$token, function(x){
+  x <- ifelse(x %in% token, "keep", "remove") } )))
+dmlikelong <- dmlikelong[dmlikelong$remove == "keep", ]
+dmlikelong$remove <- NULL
+# inspect data
+nrow(dmlikelong)
+```
+
+Extraction of the speaker that uttered the instance of discourse *like*.
+
+```{r likeac_1_09}
+# extract speaker
+dmlikelong$all.pre <- str_replace_all(dmlikelong$all.pre, ".*\\*", "*")
+dmlikelong$all.pre <- str_replace_all(dmlikelong$all.pre, ":.*", "")
+# clean pre and post
+dmlikelong$precl <- as.vector(unlist(sapply(dmlikelong$precl, function(x){
+  x <- gsub(")", "", x, fixed = T)
+  x <- gsub("(", "", x, fixed = T)
+  x <- gsub("[", "", x, fixed = T)
+  x <- gsub("]", "", x, fixed = T)
+  x <- gsub("/", "", x, fixed = T)
+  x <- gsub("+", "", x, fixed = T)
+  x <- gsub(".", "", x, fixed = T)
+  x <- gsub("<", "", x, fixed = T)
+  x <- gsub(">", "", x, fixed = T)
+  x <- gsub("?", "", x, fixed = T)
+  x <- gsub("!", "", x, fixed = T)
+  x <- gsub("&", "", x, fixed = T)
+  x <- gsub(":", "", x, fixed = T)
+  })))
+dmlikelong$postcl <- as.vector(unlist(sapply(dmlikelong$postcl, function(x){
+  x <- gsub(")", "", x, fixed = T)
+  x <- gsub("(", "", x, fixed = T)
+  x <- gsub("[", "", x, fixed = T)
+  x <- gsub("]", "", x, fixed = T)
+  x <- gsub("/", "", x, fixed = T)
+  x <- gsub("+", "", x, fixed = T)
+  x <- gsub(".", "", x, fixed = T)
+  x <- gsub("<", "", x, fixed = T)
+  x <- gsub(">", "", x, fixed = T)
+  x <- gsub("?", "", x, fixed = T)
+  x <- gsub("!", "", x, fixed = T)
+  x <- gsub("&", "", x, fixed = T)
+  x <- gsub(":", "", x, fixed = T)
+  })))
+# add fulltext column to dmlikelong
+dmlikelong$full <- as.vector(unlist(apply(dmlikelong, 1, function(x){
+  x <- paste(x[1], "<<", x[2], ">>", x[3], collapse = " ")
+  x <- gsub(" {2,}", " ", x)
+  x <- str_trim(x, side = "both")
+  })))
+dmlikelong$id <- 1:nrow(dmlikelong)
+dmlikelong$remove <- as.vector(unlist(apply(dmlikelong, 1, function(x){
+  x <- paste(x[5], "<<", x[2], ">>", x[6], collapse = " ")
+  x <- gsub(" {2,}", " ", x)
+  x <- str_trim(x, side = "both")
+  })))
+dmlikelong$remove <- as.vector(unlist(sapply(dmlikelong$remove, function(x){
+  # liked/likes/likely
+  x <- str_replace_all(x, ".*<< like >> (d|s|ly){1,1} .*", "rmv") 
+   # alike/unlike
+  x <- str_replace_all(x, ".* (a|un){1,1} <<.*", "rmv")
+  x <- str_replace_all(x, " {2,}" , " ")
+  x <- str_trim(x, side = "both")
+  # something like
+  x <- str_replace_all(x, ".* something <<.*", "rmv") 
+  #thing/stuff like that
+  x <- str_replace_all(x, ".*(thing|stuff){1,1} << like >> th.*", "rmv") 
+  # like to
+  x <- str_replace_all(x, ".*>> to .*", "rmv") 
+  # don't like
+  x <- str_replace_all(x, ".*(n't|ould){1,1} (you ){0,1}<<.*", "rmv") 
+  # sound/look/feel/felt/seem like
+  x <- str_replace_all(x, ".*(taste|smell|sound|look|feel|seem|felt|act){1,1}(s|ed|ing){0,1}(d){0,1} (just ){0,1}<<.*", "rmv") 
+  # it's like
+  x <- str_replace_all(x, ".* it {0,1}'s <<.*", "rmv") 
+  # it's not like
+  x <- str_replace_all(x, ".* it {0,1}'s not << like >> .*", "rmv") 
+  # did/do you like that?
+  x <- str_replace_all(x, ".*(did|do){1,1} (you ){0,1}<< like >> (it|that|this|the){0,1}.*", "rmv") 
+  # like that/this?
+  x <- str_replace_all(x, ".*>> (that|this){1,1}.*", "rmv") 
+  # like what?
+  x <- str_replace_all(x, ".*>> what.*", "rmv") 
+  # would you like
+  x <- str_replace_all(x, ".*ould(n't){0,1} you << like >> .*", "rmv") 
+  # I/you like V-ing
+  x <- str_replace_all(x, ".* (I|you){1,1} << like >> (me|you){1,1}.*", "rmv") 
+  # I/we/he/you'd like you to
+  x <- str_replace_all(x, ".* (I|we|he){1,1}'d << like >> you to .*", "rmv") 
+  })))
+# inspect data
+nrow(dmlikelong)
+```
+
+Remove problematic data points 
+
+```{r likeac_1_10}
+# remove rmv
+dmlikelong <- dmlikelong[dmlikelong$remove != "rmv",]
+# inspect data
+nrow(dmlikelong)
+```
+
+Reorganise data
+
+```{r likeac_1_11}
+# reorganize data frames
+# dmlikelong
+dmlikelong <- data.frame(dmlikelong$id, dmlikelong$file, dmlikelong$all.pre, dmlikelong$pre, dmlikelong$token, dmlikelong$post, dmlikelong$full, dmlikelong$remove)
+# adapt column names
+colnames(dmlikelong) <- c("idlong","filelong","spklong","prelong","tokenlong","postlong","fulllong","fullcleanlong")
+# remove + from spk
+dmlikelong$spklong <- gsub("*", "", dmlikelong$spklong, fixed = T)
+# inspect data
+dmlikelong[1:28,8]
+```
+
+## Combine long data and short context data
+
+```{r likeac_1_12a}
+# combine dmlike and dmlikelong
+dmlike <- cbind(dmlike, dmlikelong)
+# save table to disc
+base::saveRDS(dmlike, file = here::here("data", "dmlike_before_coding.rda"))
+# inspect data
+head(dmlike)
+```
+
+
+##  Add manual coding
+
+```{r likeac_1_12b}
+DiscourseLike <- c("99", "267", "430", "481", "577", "583", "608", "614", "615", "693", "743", "749", "762", "782", "787", "793", "804", "805", "806", "826", "852", "860", "861", "910", "1009", "1034", "1082", "1106", "1181", "1185", "1190", "1209", "1222", "1236", "1238", "1244", "1280", "1380", "1382", "1386", "1390", "1391", "1394", "1405", "1519", "1520", "1534", "1593", "1649", "1663", "1741", "1759", "1794", "1803", "1925", "2017", "2026", "2068", "2081", "2195", "2522", "2544", "2624", "2722", "2723", "2758", "2781", "2881", "2956", "2972", "2974", "2975", "2976", "2978", "2979", "2986", "3035", "3036", "3041", "3042", "3043", "3044", "3045", "3047", "3049", "3050", "3110", "3117", "3137", "3138", "3140", "3143", "3147", "3148", "3154", "3156", "3167", "3183", "3199", "3202", "3211", "3212", "3217", "3218", "3219", "3220", "3221", "3223", "3225", "3226", "3237", "3238", "3240", "3257", "3277", "3285", "3328", "3346", "3348", "3349", "3352", "3361", "3362", "3365", "3374", "3375", "3380", "3420", "3421", "3862", "4015", "4103", "4143", "4222", "4231", "4302", "4308", "4309", "4310", "4311", "4320", "4365", "4427", "4565", "4566", "4577", "4585", "4586", "4593", "4598", "4606", "4624", "4627", "4645", "4652", "4657", "4669", "4671", "4687", "4688", "4690", "4691", "4692", "4693", "4697", "4698", "4699", "4700", "4703", "4704", "4706", "4709", "4712", "4713", "4715", "4718", "4720", "4728", "4743", "4748", "4750", "4751", "4779", "4802", "4803", "4869", "4908", "4974", "4976", "5026", "5071", "5114", "5145", "5162", "5169", "5193", "5194", "5198", "5238", "5251", "5273", "5292", "5294", "5297", "5301", "5302", "5309", "5311", "5317", "5320", "5334", "5337", "5373", "5399", "5405", "5426", "5451", "5453", "5458", "5459", "5490", "5494", "5497", "5500", "5518", "5546", "5554", "5557", "5560", "5564", "5565", "5566", "5567", "5568", "5569", "5575", "5590", "5592", "5617", "5623", "5638", "5719", "5725", "5727", "5760", "5764", "5778", "5785", "5819", "5821", "5824", "5837", "5839", "5868", "5869", "5885", "5931", "5944", "5966", "5967", "5973", "6032", "6076", "6092", "6095", "6134", "6152", "6168", "6181", "6184",
+                   "6187", "6258", "6306", "6310", "6317", "6327", "6337", "6346", "6347", "6364", "6371", "6382", "6386", "6390", "6406", "6411", "6426", "6479", "6485", "6493", "6494", "6495", "6501", "6507", "6508", "6509", "6511", "6521", "6526", "6529", "6531", "6532", "6539", "6597", "6609", "6629", "6649", "6671", "6672", "6693", "6709", "6710", "6719", "6722", "6733", "6736", "6738", "6739", "6781", "6784", "6793", "6814", "6816", "6828", "6832", "6866", "6879", "6880", "6881", "6902", "6908", "6909", "6914", "6916", "6920", "6921", "6922", "6923", "6925", "6931", "6932", "6933", "6934", "6952", "6954", "6956", "6967", "6991", "6997", "7015", "7028", "7031", "7033", "7038", "7040", "7044", "7047", "7048", "7049", "7056", "7058", "7059", "7063", "7064", "7065", "7066", "7070", "7079", "7091", "7095", "7103", "7105", "7119", "7122", "7123", "7127", "7132", "7133", "7134", "7135", "7137", "7139", "7143", "7146", "7157", "7160", "7163", "7164", "7168", "7171", "7173", "7180", "7183", "7185", "7186", "7202", "7211", "7212", "7214", "7215", "7216", "7220", "7222", "7223", "7229", "7237", "7250", "7253", "7286", "7291", "7292", "7293", "7298", "7299", "7312", "7315", "7339", "7349", "7400", "7401", "7405", "7408", "7412", "7415", "7416", "7417", "7419", "7420", "7421", "7426", "7437", "7438", "7441", "7442", "7446", "7447", "7452", "7454", "7459", "7464", "7472", "7488", "7489", "7532", "7533", "7537", "7541", "7542", "7544", "7546", "7555", "7575", "7578", "7579", "7596", "7597", "7598", "7617", "7623", "7626", "7627", "7635", "7637", "7639", "7654", "7657", "7658", "7671", "7684", "7701", "7707", "7709", "7713", "7714", "7721", "7734", "7737", "7739", "7740", "7742", "7743", "7744", "7746", "7755", "7759", "7760", "7764", "7766", "7767", "7769", "7772", "7778", "7785", "7790", "7793", "7795", "7797", "7798", "7801", "7819", "7820", "7831", "7834", "7837", "7839", "7840", "7841", "7843", "7860", "7861", "7866", "7867", "7868", "7869", "7870", "7871", "7872", "7881", "7886", "7888",
+                   "7891", "7892", "7894", "7896", "7897", "7898", "7899", "7900", "7901", "7903", "7906", "7908", "7909", "7914", "7917", "7921", "7922", "7926", "7928", "7929", "7931", "7951", "7952", "7966", "7971", "7973", "7975", "7979", "7984", "7997", "8007", "8017", "8029", "8036", "8038", "8042", "8050", "8051", "8056", "8078", "8079", "8081", "8082", "8090", "8091", "8100", "8121", "8125", "8145", "8146", "8148", "8192", "8194", "8199", "8264", "8273", "8289", "8300", "8302", "8303", "8311", "8312", "8367", "8368", "8376", "8381", "8382", "8384", "8385", "8386", "8395", "8397", "8400", "8401", "8404", "8409", "8414", "8425", "8427", "8429", "8430", "8431", "8433", "8436", "8437", "8439", "8442", "8446", "8448", "8449", "8465", "8469", "8470", "8471", "8476", "8482", "8490", "8498", "8503", "8505", "8513", "8514", "8516", "8518", "8519", "8520", "8527", "8529", "8533", "8538", "8539", "8540", "8560", "8574", "8575", "8586", "8593", "8594", "8631", "8644", "8665", "8684", "8727", "8733", "8740", "8741", "8747", "8753", "8755", "8765", "8771", "8783", "8799", "8800", "8803", "8804", "8820", "8869", "8874", "8876",
+                   "8877", "8881", "8882", "8883", "8885", "8891", "8892", "8894", "8895", "8896", "8897", "8898", "8901", "8903", "8904", "8905", "8907", "8909", "8914", "8918", "8920", "8928", "8939", "8940", "8946", "8995", "8998", "8999", "9001", "9003", "9004", "9005", "9009", "9010", "9020", "9022", "9025", "9028", "9031", "9037", "9038", "9039", "9043", "9045", "9047", "9048", "9049", "9052", "9062", "9069", "9070", "9071", "9079", "9082", "9087", "9088", "9089", "9092", "9097", "9100", "9101", "9107", "9109", "9110", "9112", "9116", "9118", "9126", "9134", "9136", "9141", "9142", "9169", "9174", "9185", "9186", "9193", "9194", "9197", "9203", "9204", "9207", "9208", "9211", "9212", "9213", "9214", "9215", "9224", "9229", "9230", "9231", "9233", "9234", "9240", "9241", "9242", "9243", "9244", "9245", "9246", "9248", "9251", "9254", "9257", "9258", "9260", "9261", "9262", "9264", "9265", "9269", "9270", "9272", "9273", "9280", "9286", "9288", "9292", "9293", "9294", "9303", "9304", "9305", "9315", "9316", "9318", "9328", "9329", "9332", "9333", "9337", "9339", "9345", "9347", "9348", "9349", "9352", "9358", "9361", "9362", "9364", "9365", "9366", "9367", "9371", "9374", "9375", "9376", "9377", "9378", "9385", "9387", "9393", "9394", "9396", "9397", "9400", "9406", "9407", "9414", "9415", "9420", "9429", "9430", "9443", "9445", "9453", "9466", "9471", "9475", "9480", "9484", "9488", "9490", "9501", "9506", "9510", "9513", "9516", "9518", "9525", "9529", "9532", "9534", "9546", "9562", "9563", "9567", "9576", "9593")
+
+Unclear <- c("110", "740", "887", "1381", "4708", "4839", "4904", "4905", "4965", "4972", "5000", "5091", "5276", "5284", "5561", "5667", "5754", "5843", "5862", "6140", "6150", "6156", "6410", "6443", "6496", "6575", "6721", "6802", "6837", "6878", "6948", "6973", "6983", "7075", "7121", "7179", "7311", "7529", "7636", "7638", "7640", "7643", "7776", "7936", "8016", "8035", "8064", "8101", "8149", "8198", "8205", "8299", "8337", "8352", "8366", "8499", "8802", "8843", "8889", "9078", "9090", "9091", "9096", "9102", "9104", "9117", "9135", "9153", "9188", "9190", "9271", "9319", "9381", "9578")
+
+Approximation <- c("743", "910", "1236", "1238", "1391", "1925", "2522", "3047", "3050", "3117", "3138", "3156", "3202", "3223", "3225", "3226", "3365", "4222", "5238", "5373", "5459", "5557", "5567", "5839", "6649", "6997", "7028", "7186", "7211", "7292", "7437", "7541", "7658", "7671", "7766", "7797", "7891", "7928", "7997", "8036", "8146", "8199", "8482", "8519", "8520", "8593", "8594", "8741", "8894", "8895", "9031", "9088", "9092", "9100", "9197", "9203", "9207", "9212", "9214", "9241", "9245", "9292", "9293", "9294", "9362", "9376", "9378", "9501", "9506", "9510", "9532", "9567")
+
+Emphasizing <- c("430", "577", "693", "1082", "1190", "1534", "1794", "2758", "2881", "2975", "3036", "3143", "3154", "3183", "3212", "3285", "3346", "3349", "3361", "3375", "4309", "4585", "4671", "4697", "4699", "5026", "5071", "5145", "5399", "5405", "5426", "5451", "5546", "5725", "5760", "5824", "5885", "6390", "6485", "6671", "6719", "6733", "6866", "6922", "6923", "6954", "6967", "7038", "7070", "7079", "7105", "7119", "7122", "7137", "7185", "7215", "7400", "7408", "7544", "7578", "7637", "7769", "7772", "7839", "7931", "7971", "8017", "8148", "8289", "8384", "8800", "8918", "9415")
+
+Exemplification <- c("3110", "4712", "5575", "6722", "6738", "6934", "6952", "8264", "8514", "8631", "9020", "9101", "9315", "9345")
+
+FocusMarker <- c("4427", "5931", "7740", "7886", "8051", "8883")
+
+Hedge <- c("1222", "1520", "1663", "1741", "3035", "3041", "3042", "3044", "3148", "3217", "3218", "3220", "3362", "4565", "4577", "4586", "4706", "4743", "4748", "5114", "5301", "5638", "5778", "5821", "6095", "6134", "6152", "6306", "6310", "6347", "6879", "6880", "6916", "6956", "6991", "7058", "7103", "7123", "7132", "7134", "7135", "7146", "7202", "7421", "7684", "7746", "8091", "8903", "9136")
+
+LexicalIndecision <- c("615", "787", "793", "804", "805", "861", "1185", "1209", "2723", "2972", "3043", "3219", "3240", "3328", "4669", "4687", "4690", "4691", "4692", "4693", "4751", "4779", "4976", "5518", "5554", "5566", "5592", "5868", "5869", "6258", "6317", "6337", "6371", "6382", "6386", "6426", "6609", "6629", "6736", "6739", "6909", "6925", "6931", "6932", "6933", "7040", "7056", "7064", "7065", "7066", "7163", "7229", "7253", "7349", "7401", "7420", "7447", "7459", "7596", "7654", "7713", "7714", "7742", "7767", "7778", "7801", "7820", "7840", "7869", "7870", "7896", "7897", "7906", "7908", "7909", "8050", "8078", "8311", "8381", "8386", "8433", "8437", "8465", "8498", "8503", "8505", "8518", "8540", "8665", "8684", "8939", "9048", "9082", "9089", "9116", "9134", "9240", "9332", "9339", "9347", "9365", "9367", "9394", "9480", "9513")
+
+Modifier <- c("99", "3137", "3374", "3862", "4231", "5198", "5320", "5973", "6479", "6501", "6511", "6784", "6921", "7049", "7133", "7157", "7160", "7168", "7171", "7183", "7216", "7220", "7223", "7291", "7298", "7405", "7415", "7416", "7419", "7426", "7442", "7454", "7464", "7472", "7489", "7532", "7537", "7542", "7575", "7623", "7635", "7657", "7701", "7707", "7709", "7721", "7739", "7744", "7755", "7759", "7764", "7790", "7793", "7798", "7819", "7860", "7861", "7866", "7867", "7872", "7892", "7894", "7898", "7899", "7900", "7901", "7903", "7914", "7917", "7921", "7926", "7951", "7966", "7973", "7979", "7984", "8042", "8079", "8090", "8100", "8121", "8125", "8302", "8303", "8312", "8367", "8368", "8385", "8404", "8409", "8425", "8427", "8436", "8442", "8448", "8449", "8470", "8490", "8513", "8527", "8529", "8533", "8538", "8539", "8574", "8575", "8586", "8727", "8733", "8740", "8755", "8765", "8799", "8804", "8885", "8891", "8896", "8897", "8901", "8904", "8905", "8907", "8909", "8914", "8998", "9003", "9022", "9025", "9028", "9037", "9038", "9039", "9045", "9052", "9069", "9097", "9107", "9109", "9110", "9112", "9118", "9126", "9142", "9208", "9215", "9224", "9230", "9231", "9234", "9242", "9243", "9244", "9246", "9248", "9251", "9254", "9257", "9258", "9260", "9269", "9270", "9288", "9305", "9316", "9318", "9328", "9329", "9348", "9349", "9352", "9358", "9361", "9375", "9385", "9387", "9429", "9453", "9466", "9471", "9475", "9488", "9516", "9518", "9525", "9562", "9563")
+
+UnclearFunction <- c("267", "2624", "5568", "6364", "8397", "9407", "9484")
+
+Quotative <- c("4700", "5194", "5497", "5569", "6908", "9070", "9071")
+
+RepairIndicator <- c("782", "1519", "2068", "2974", "4593", "4624", "4718", "4908", "5560", "5623", "7452", "7555", "7834", "8382", "9004", "9273")
+
+RestartSignal <- c("481", "762", "1106", "1382", "1390", "2781", "3045", "3147", "3211", "3221", "3237", "3352", "4627", "4652", "4698", "4709", "4869", "5162", "5169", "5302", "6406", "6539", "6902", "7015", "7139", "7237", "7315", "7579", "7760", "7922", "7929", "8469", "8898", "8940", "9001", "9141", "9286", "9366")
+
+Specification <- c("583", "608", "614", "749", "806", "826", "852", "860", "1009", "1034", "1181", "1244", "1280", "1380", "1386", "1394", "1405", "1593", "1649", "1759", "1803", "2017", "2026", "2081", "2195", "2544", "2722", "2956", "2976", "2978", "2979", "2986", "3049", "3140", "3167", "3199", "3238", "3257", "3277", "3348", "3380", "3420", "3421", "4015", "4103", "4143", "4302", "4308", "4310", "4311", "4320", "4365", "4566", "4598", "4606", "4645", "4657", "4688", "4703", "4704", "4713", "4715", "4720", "4728", "4750", "4802", "4803", "4974", "5193", "5251", "5273", "5292", "5294", "5297", "5309", "5311", "5317", "5334", "5337", "5453", "5458", "5490", "5494", "5500", "5564", "5565", "5590", "5617", "5719", "5727", "5764", "5785", "5819", "5837", "5944", "5966", "5967", "6032", "6076", "6092", "6168", "6181", "6184", "6187", "6327", "6346", "6411", "6493", "6494", "6495", "6507", "6508", "6509", "6521", "6526", "6529", "6531", "6532", "6597", "6672", "6693", "6709", "6710", "6781", "6793", "6814", "6816", "6828", "6832", "6881", "6914", "6920", "7031", "7033", "7044", "7047", "7048", "7059", "7063", "7091", "7095", "7127", "7143", "7164", "7173", "7180", "7212", "7214", "7222", "7250", "7286", "7293", "7299", "7312", "7339", "7412", "7417", "7438", "7441", "7446", "7488", "7533", "7546", "7597", "7598", "7617", "7626", "7627", "7639", "7734", "7737", "7743", "7785", "7795", "7831", "7837", "7841", "7843", "7868", "7871", "7881", "7888", "7952", "7975", "8007", "8029", "8038", "8056", "8081", "8082", "8145", "8192", "8194", "8273", "8300", "8376", "8395", "8400", "8401", "8414", "8429", "8430", "8431", "8439", "8446", "8471", "8476", "8516", "8560", "8644", "8747", "8753", "8771", "8783", "8803", "8820", "8869", "8874", "8876", "8877", "8881", "8882", "8892", "8920", "8928", "8946", "8995", "8999", "9005", "9009", "9010", "9043", "9047", "9049", "9062", "9079", "9087", "9169", "9174", "9185", "9186", "9193", "9194", "9204", "9211", "9213", "9229", "9233", "9261", "9262", "9264", "9265", "9272", "9280", "9303", "9304", "9333", "9337", "9364", "9371", "9374", "9377", "9393", "9396", "9397", "9400", "9406", "9414", "9420", "9430", "9443", "9445", "9490", "9529", "9534", "9546", "9576", "9593")
+```
+
+Adding coding to data
+
+```{r likeac_1_12c}
+# add coding to data
+dmlike$DiscourseLike <- ifelse(dmlike$id %in% DiscourseLike, 1, 
+                               ifelse(dmlike$id %in% Unclear, NA, 0))
+dmlike$Function <- ifelse(dmlike$id %in% Approximation, "Approximation",
+                          ifelse(dmlike$id %in% Emphasizing, "Emphasizing",
+                          ifelse(dmlike$id %in% Exemplification,
+                                 "Exemplification",
+                          ifelse(dmlike$id %in% FocusMarker, "FocusMarker",
+                          ifelse(dmlike$id %in% Hedge, "Hedge",
+                          ifelse(dmlike$id %in% LexicalIndecision,
+                                 "LexicalIndecision",
+                          ifelse(dmlike$id %in% Modifier, "Modifier",
+                          ifelse(dmlike$id %in% UnclearFunction, "Unclear",
+                          ifelse(dmlike$id %in% Quotative, "Quotative",
+                          ifelse(dmlike$id %in% RepairIndicator,
+                                 "RepairIndicator",
+                          ifelse(dmlike$id %in% RestartSignal, "RestartSignal",
+                          ifelse(dmlike$id %in% Specification, "Specification",
+                                 "0"))))))))))))
+# save 
+base::saveRDS(dmlike, file = here::here("data", "dmlike_manually_coded.rda"))
+# inspect data
+head(dmlike)
+```
+
+
+
+```{r likeac_1_12d}
+# recode pragmatic function
+dmlike <- dmlike %>%
+    # WARNING: DATA REDUCTION!
+    dplyr::filter(Function != "Approximation",
+                  Function != "Quotative",
+                  Function != "Unclear") %>%
+    dplyr::mutate(Specification = ifelse(Function == "Specification", 1,
+                                  ifelse(Function == "Exemplification", 1, 
+                                         0))) %>%
+    dplyr::mutate(Modification = ifelse(Function == "Modifier", 1,
+                                 ifelse(Function == "Hedge", 1,
+                                 ifelse(Function == "Emphasizing", 1, 
+                                 ifelse(Function == "FocusMarker", 1,
+                                        0))))) %>%
+    dplyr::mutate(Repair = ifelse(Function == "RepairIndicator", 1,
+                           ifelse(Function == "RestartSignal", 1,
+                                  0))) %>%
+    dplyr::mutate(LexicalIndecision = ifelse(Function == "LexicalIndecision", 
+                                             1, 0))
+# define groups for siblings and peers.
+ SIB <- c("BR1", "BR2", "BR3", "BRI", "BRO", "BRO1", "BRO2", "SI1", 
+          "SI2", "SI3", "SIS", "SIS1", "SIS2", "SIS3", "CO2", "CO3", 
+          "COS", "COU", "COU2", "COU3", "FRE", "FRI", "KID", "FR1", 
+          "FRE", "FRI")
+# define group for primary caregivers
+PCG <- c("MOT", "FAT")
+# define group for secondary caregivers
+SCG <- c("ANT", "AUN", "GFA", "GMA", "GPA", "GRA", "GRM", "UNC")
+# clean column names and add interlocutor column
+dmlike <- dmlike %>%
+    dplyr::rename(ID = id, File = file, Speaker = spk, PreviousDiscourse = pre,
+                Token = token, FollowingDiscourse = post, Example = full,
+                CleanedUtterance = fullclean, ID_long = idlong, 
+                File_long = filelong, Speaker_long = spklong,
+                PreviousDiscourse_long = prelong, Token_long = tokenlong,
+                FollowingDiscourse_long = postlong, Example_long = fulllong,
+                CleanedUtterance_long = fullcleanlong) %>%
+  # clean speaker
+  dplyr::mutate(Interlocutor = ifelse(Speaker %in% SIB, "Peer",
+                          ifelse(Speaker %in% PCG, "PrimaryCaregiver",
+                          ifelse(Speaker %in% SIB, "SecondaryCaregiver",
+                          ifelse(Speaker == "CHI", "Child", "Other")))))
+# inspect data
+head(dmlike)
+```
+
+## Adding reliable coding
+
+We now replace this data set with the data set that has been tested for reliability (see Part 5 of this analysis)
+
+
+```{r likeac_1_13b}
+dmlike_newcoding <- read.table(here("datatables", "dmlike_all_coded_new.txt"), sep = "\t", header=TRUE, quote = "", skipNul = T)
+dmlike_newcoding_redux <- dmlike_newcoding %>%
+  dplyr::select(ID, Function) %>%
+  dplyr::rename(Function_new = Function)
+# inspect data
+head(dmlike_newcoding_redux)
+```
+
+
+
+```{r likeac_1_12e}
+dmlike <- dplyr::left_join(dmlike, dmlike_newcoding_redux, by = "ID") %>%
+  dplyr::mutate(Function = ifelse(is.na(Function_new), Function, Function_new),
+                Function = ifelse(Function == "Exemplification", "Specification", Function)) %>%
+  dplyr::mutate(Specification = ifelse(Function == "Specification", 1, 0),
+                Modification = ifelse(Function == "Attention", 1, 0),
+                Repair = ifelse(Function == "Repair", 1, 0),
+                LexicalIndecision = ifelse(Function == "Cognitive", 1, 0)) %>%
+  dplyr::rename(Attention = Modification,
+                Cognitive = LexicalIndecision) %>%
+  dplyr::select(-Function_new)
+# inspect data
+head(dmlike)
+```
+
+```{r likeac_1_12f}
+dmlike <- dmlike %>%
+  # WARNING: DATA REDUCTION!
+  dplyr::filter(DiscourseLike != "0")
+# save
+base::saveRDS(dmlike, file = here::here("data", "dmlike_all_coded.rda"))
+# inspect data
+head(dmlike)
+```
+
+We now have a data set which is based on instances of discourse like with each instance representing a row in this data. 
+
+# Biodata
+
+## Adding biodata
+
+We will now continue with the bio-demographic information about the speakers.
+
+```{r likeac_1_13b}
+# extract biodata
+#cha <- cha[1:5]
+bio <- sapply(cha, function(x) {
+  file <- gsub("D:\\Uni\\Korpora\\Original\\CHILDES\\Eng-NA-MOR\\HSLLD/", "", x, fixed = T)
+  file <- gsub(".cha", "", file, fixed = T)
+  x <- scan(x, what = "char", sep = "\t", quiet = T, quote = "", skipNul = T)
+  x <- gsub("\n", " ", x, fixed = T)
+  x <- gsub("\t", " ", x, fixed = T)
+  x <- str_trim(x, side = "both")
+  x <- gsub(" {2,}", " ", x)
+  x <- paste(x, collapse = " ", sep = " ")
+  x <- str_replace_all(x, "\\*.*", "")
+  rps <- str_count(x, "@ID")
+  # name
+  nam <- str_replace_all(file, ".*/", "")
+  # id
+  pid <- str_replace_all(x, ".*@PID", "@PID")
+  # pid
+  pid <- str_replace_all(x, ".*@PID: ", "")
+  pid <- str_replace_all(pid, "@.*", "")
+  pid <- str_trim(pid, side = "both")
+  pid <- gsub(" {2,}", " ", pid)  
+  # languages
+  lan <- str_replace_all(x, ".*@Languages: ", "")
+  lan <- str_replace_all(lan, "@.*", "")
+  lan <- str_trim(lan, side = "both")
+  lan <- gsub(" {2,}", " ", lan)
+  # participants
+  par <- str_replace_all(x, ".*@Participants: ", "")
+  par <- str_replace_all(par, "@.*", "")
+  par <- str_trim(par, side = "both")
+  par <- gsub(" {2,}", " ", par)
+  # birth of child
+  bir <- str_replace_all(x, ".*@Birth of CHI: ", "")
+  bir <- str_replace_all(bir, "@.*", "")
+  bir <- str_trim(bir, side = "both")
+  bir <- gsub(" {2,}", " ", bir)
+  # comment
+  com <- str_replace_all(x, ".*@Comment: ", "")
+  com <- str_replace_all(com, "@.*", "")
+  com <- str_trim(com, side = "both")
+  com <- gsub(" {2,}", " ", com)
+  # date
+  dat <- str_replace_all(x, ".*@Date: ", "")
+  dat <- str_replace_all(dat, "@.*", "")
+  dat <- str_trim(dat, side = "both")
+  dat <- gsub(" {2,}", " ", dat)
+  # location
+  loc <- str_replace_all(x, ".*@Location: ", "")
+  loc <- str_replace_all(loc, "@.*", "")
+  loc <- str_trim(loc, side = "both")
+  loc <- gsub(" {2,}", " ", loc)
+  # situation
+  sit <- str_replace_all(x, ".*@Situation: ", "")
+  sit <- str_replace_all(sit, "@.*", "")
+  sit <- str_trim(sit, side = "both")
+  sit <- gsub(" {2,}", " ", sit)
+  # activities
+  act <- str_replace_all(x, ".*@Activities: ", "")
+  act <- str_trim(act, side = "both")
+  act <- gsub(" {2,}", " ", act)
+  # ids
+  ids <- as.vector(unlist(strsplit(gsub("(@ID)", "~~~\\1", x), "~~~")))
+  ids <- as.vector(unlist(ids[2:length(ids)]))
+  ids <- str_replace_all(ids, "@ID: ", "")
+  ids <- str_replace_all(ids, "@.*", "")
+  ids <- str_replace_all(ids, "\\|{2,}", "|")
+  ids <- str_replace_all(ids, "eng\\|HSLLD\\|", "")
+  ids <- gsub("\\|$", "", ids, perl = T)
+  # agechild
+  age <- str_replace_all(ids, "CHI\\|", "")
+  age <- str_replace_all(age, "\\|.*", "")
+  age <- str_replace_all(age, "[A-Z]{2,}[0-9]{0,2}", "NA")
+  # genderchild
+  sex <- str_replace_all(ids, ".*[0-9]\\|female", "female")
+  sex <- str_replace_all(sex, ".*[0-9]\\|male", "male")
+  sex <- str_replace_all(sex, "male.*", "male")
+  sex<- as.vector(unlist(sapply(sex, function(x){
+    x <- ifelse(nchar(x) > 8, "NA", x)})))
+  # ids 2
+  ids <- str_replace_all(ids, "[0-9]{1,2};[0-9]{1,2}.{0,1}[0-9]{0,2}\\|{0,1}[a-z]{0,6}\\|", "") 
+  ids <- str_trim(ids, side = "both")
+  ids <- str_replace_all(ids, "\\|$", "") 
+  # spk
+  spk <- str_replace_all(ids, "\\|.*", "")
+  # create a table of results
+  vec <- c(file, pid, nam, lan, par, bir, com, dat, loc, sit, act, x)
+  cntnt <- c(rep(vec, rps))
+  df <- matrix(cntnt, ncol= 12, byrow = T)
+  mt <- cbind(ids, spk, age, sex, df)
+  colnames(mt) <- c("ID", "Speaker", "Age", "Gender", "File", "pid", "Name", "Language", "Participants", "DateOfBirth", "Comment", "DateOfRecording", "Location", "Situation", "Actvity", "AllInformation")
+  return(mt)
+  })
+# collapse all tables into 1 table 
+biotb <- do.call("rbind", bio)
+biotb <- as.data.frame(biotb)
+# inspect data
+head(biotb)
+```
+
+# Counting words per speaker
+
+```{r likeac_1_14}
+# count words for each speaker
+wc <- sapply(cha, function(x) {
+  file <- gsub("D:\\Uni\\Korpora\\Original\\CHILDES\\Eng-NA-MOR\\HSLLD/", "", x, fixed = T)
+  file <- gsub(".cha", "", file, fixed = T)
+  x <- scan(x, what = "char", sep = "\t", quiet = T, quote = "", skipNul = T)
+  x <- gsub("\n", " ", x, fixed = T)
+  x <- gsub("\t", " ", x, fixed = T)
+  x <- str_trim(x, side = "both")
+  x <- gsub(" {2,}", " ", x)
+  orig <- paste(x, collapse = " ", sep = " ")
+  full <- strsplit(gsub("([*]{1,1}[A-Z]{2,4}[0-9]{0,1}:)", "~~~\\1", orig), "~~~")
+  full2 <- unlist(full)
+  meta <- full2[1]
+  full2 <- full2[2:length(full2)]
+  x <- strsplit(gsub("([%|*][a-z|A-Z]{2,4}[0-9]{0,1}:)", "~~~\\1", orig), "~~~")
+  txt <- sapply(x, function(y){
+    y <- str_replace_all(y, "%.*", "")
+    y <- str_replace_all(y, "@.*", "")
+    y <- str_replace_all(y, "\\.|\\?|;|,|\\[|\\]|!|\\+|\\(|\\)|<|>|\\)", "")
+    y <- str_replace_all(y, fixed("[0]"), "")
+    y <- str_trim(y, side = "both")
+    y <- gsub(" {2,}", " ", y)
+    y <- y[y != ""] })
+  x <- str_split(txt, ":")
+  spk <- sapply(x, function(y){
+    y <- y[1] })
+  file <- as.vector(unlist(rep(file, length(spk))))
+  wrds <- sapply(x, function(y){
+    y <- y[2]
+    y <- str_trim(y, side = "both")
+    y <- gsub(" {2,}", " ", y)
+    })
+  cnt <- sapply(x, function(y){
+    y <- y[2]
+    y <- str_trim(y, side = "both")
+    y <- gsub(" {2,}", " ", y)
+    y <- str_split(y, " ")
+    y <- sapply(y, function(z){ z <- ifelse(z == "", 0, length(z)) })
+    y <- unique(y)
+    })
+  spk <- gsub("*", "", spk, fixed = T)
+  df <- matrix(data = c(file, full2, txt, spk, wrds, cnt, rep(meta, length(txt))), ncol = 7, byrow = F)
+  })
+# collapse all tables into 1 table 
+wc <- do.call("rbind", wc)
+wc <- as.data.frame(wc)
+colnames(wc) <- c("File", "Utterance", "SpeakerAndUtterance", "Speaker", "CleanUtterance", "WordCount", "MetaInformation")
+# inspect data
+head(wc)
+```
+
+In a next step, we will extract the worcounts per speaker.
+
+```{r likeac_1_15}
+# extract wordcounts per speaker
+spkwc <- wc %>%
+  dplyr::select(File, Speaker, WordCount) %>%
+  dplyr::group_by(File, Speaker) %>%
+  dplyr::mutate(WordCount = as.numeric(WordCount)) %>%
+  dplyr::summarise(WordCount = sum(WordCount))
+# inspect data
+head(spkwc)
+```
+
+## Clean biodata
+
+We will now clean and supplement the bio-demographic information.
+
+```{r likeac_1_16}
+# combine bio data with wordcounts
+biowc <- left_join(biotb, spkwc)
+biowc <- biowc %>%
+  dplyr::select(File, Speaker, Age, Gender, DateOfBirth, Comment, 
+                DateOfRecording, Participants, Location, Situation, 
+                Actvity, WordCount) %>%
+  # clean data of birth
+  dplyr::mutate(DateOfBirth = str_replace_all(DateOfBirth, ".*-", "")) %>%
+  # clean data of recording
+  dplyr::mutate(DateOfRecording = str_replace_all(DateOfRecording, ".*-", ""))
+# recode gender
+male <- c("FAT", "UNC", "BFD", "BRO", "BRO1", "BRO2", "BR1", "BR2", 
+          "BR3", "BR3", "GFA", "GPA", "MAN", "MAL", "MAL2")
+female <- c("MOT", "SIS", "SIS1", "SIS2", "SIS3", "SI1", "SI2", "SI3", 
+            "WOM", "ANT", "AUN", "GMA", "FEM")
+biowc <- biowc %>%
+  dplyr::mutate(Gender = ifelse(Speaker %in% male, "male", 
+                                ifelse(Speaker %in% female, "female", Gender))) %>%
+  # create socio-economic status variable
+  dplyr::mutate(SocioEconomicStatus = str_replace_all(Comment, ".*SES", "")) %>%
+    dplyr::mutate(SocioEconomicStatus = str_replace_all(SocioEconomicStatus, ".*lower.*", "lower")) %>%
+  dplyr::mutate(SocioEconomicStatus = str_replace_all(SocioEconomicStatus, ".*middle.*", "middle")) %>%
+    dplyr::mutate(SocioEconomicStatus = ifelse(SocioEconomicStatus == "lower" |SocioEconomicStatus ==  "middle", SocioEconomicStatus, NA))
+# define groups for siblings and peers.
+ SIB <- c("BR1", "BR2", "BR3", "BRI", "BRO", "BRO1", "BRO2", "SI1", 
+          "SI2", "SI3", "SIS", "SIS1", "SIS2", "SIS3", "CO2", "CO3", 
+          "COS", "COU", "COU2", "COU3", "FRE", "FRI", "KID", "FR1", 
+          "FRE", "FRI")
+# define group for primary caregivers
+PCG <- c("MOT", "FAT")
+# define group for secondary caregivers
+SCG <- c("ANT", "AUN", "GFA", "GMA", "GPA", "GRA", "GRM", "UNC")
+biowc <- biowc %>%
+  dplyr::mutate(Locutor = ifelse(Speaker %in% SIB, "Peer",
+                          ifelse(Speaker %in% PCG, "PrimaryCaregiver",
+                          ifelse(Speaker %in% SIB, "SecondaryCaregiver",
+                          ifelse(Speaker == "CHI", "Child", "Other"))))) %>%
+  # create a visit column
+  dplyr::mutate(Visit = str_replace_all(File, "/.*", "")) %>%
+  # create decimal age
+  dplyr::mutate(OriginalAge = Age) %>%
+  dplyr::mutate(Months = str_replace_all(Age, ".*;", "")) %>%
+  dplyr::mutate(Months = as.numeric(Months)) %>%
+  dplyr::mutate(Months = round(Months/12, 2)) %>%
+  dplyr::mutate(Years = str_replace_all(Age, ";.*", "")) %>%
+  dplyr::mutate(Age = as.numeric(Years) + Months) %>%
+  dplyr::select(-Months, -Years)
+# add age by file
+agetb <- biowc %>%
+  dplyr::select(File, Age) %>%
+  na.omit() %>%
+  unique()
+biowc <- biowc %>%
+  dplyr::select(-Age)
+# combine agetb with biodata
+biowc <- dplyr::left_join(biowc, agetb)
+# create variable with SituationType
+biowc <- biowc %>%
+    dplyr::mutate(SituationType = File) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "HV[0-9]{1,1}/", "")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "/.*", "")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "BR", "Book reading")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "ER", "Elicited report")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "ET", "Experimental task")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "LW", "Letter writing")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "MD", "Mother defined situation")) %>%
+  dplyr::mutate(SituationType = str_replace_all(SituationType, "MT", "Meal time")) %>%
+    dplyr::mutate(SituationType = str_replace_all(SituationType, "RE", "Reading")) %>%
+    dplyr::mutate(SituationType = str_replace_all(SituationType, "TP", "Toy play")) %>%
+  # create a categorical Age variable
+  dplyr::mutate(AgeCategory = Age) %>%
+  dplyr::mutate(AgeCategory = str_replace_all(AgeCategory, "\\..*", "")) %>%
+  dplyr::mutate(AgeCategory = factor(AgeCategory, 
+                                     levels = c("3", "4", "5", "6", "7", 
+                                                "8", "9", "10", "11", "12"))) %>%
+  # add number of participants
+  dplyr::mutate(Participants = str_count(Participants, ","))
+# remove superfluous columns
+HSDDLbiodemographics <- biowc %>%
+   dplyr::select(-Actvity, -Situation, -Location, -Comment)
+# save data
+base::saveRDS(HSDDLbiodemographics, file = here::here("data", "HSDDLbiodemographicsbiowc.rda"))
+# inspect data
+head(HSDDLbiodemographics)
+```
+
+## Extract session information
+
+```{r}
+sessionInfo()
+```
+
+
+***
+
+We have reached the end of Part 1.
+
+***
