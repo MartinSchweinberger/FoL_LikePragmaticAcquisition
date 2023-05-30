@@ -4,4 +4,6 @@ This repository contains code and processed data for the paper: Schweinberger, M
 
 The source data this study is based on the [HSLLD Corpus (Home-School Study of Language and Literacy Development)](https://childes.talkbank.org/access/Eng-NA/HSLLD.html) that is part of the [Child Language Data Exchange System (CHILDES)](https://childes.talkbank.org/). The raw data cannot be shared due to copyright issues. 
 
-Any data contained in this repository represents processed data that does not allow restoring the original raw data. 
+Any data contained in this repository represents processed data that does not allow restoring the original raw data.
+
+If you have any questions or feedback, please get in touch with Martn Schweinberger via m.schweinberger@uq.edu.au.
